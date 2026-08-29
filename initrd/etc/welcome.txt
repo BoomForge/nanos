@@ -1,0 +1,3 @@
+Welcome to the NanOS initrd.
+
+This file is read through the VFS layer.

@@ -1,0 +1,4 @@
+build/
+iso/boot/nanos.elf
+iso/boot/grub/grub.cfg
+*.log

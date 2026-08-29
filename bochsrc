@@ -1,0 +1,12 @@
+megs: 128
+romimage: file=/usr/share/bochs/BIOS-bochs-latest
+vgaromimage: file=/usr/share/bochs/VGABIOS-lgpl-latest
+boot: cdrom
+ata0-master: type=cdrom, path=build/nanos-i386.iso, status=inserted
+display_library: x
+log: build/bochs.log
+panic: action=ask
+error: action=report
+info: action=report
+debug: action=ignore
+com1: enabled=1, mode=file, dev=build/serial.log
