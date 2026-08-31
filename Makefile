@@ -23,7 +23,7 @@ MILO_FAT12_ARGS := --place=FARTEST.TXT=130
 MILO_ROUTING_TEST := tools/test_milo_routing_contract.py
 MILO_STORAGE_TEST := tools/test_milo_storage_contract.py
 MILO_SHELL_TEST := tools/test_milo_shell_contract.py
-MILO_VERSION ?= 0.27
+MILO_VERSION ?= 0.27.1
 MILO_FLOPPY := build/M.I.L.O-floppy-V$(MILO_VERSION).img
 PYTHON ?= python3
 INITRD_DIR := initrd
@@ -166,7 +166,8 @@ verify-milo-boot: $(MILO_STAGE1) $(MILO_STAGE2) $(MILO_KERNEL) $(MILO_FLOPPY)
 	test "$$(wc -c < $(MILO_KERNEL))" -le $(MILO_KERNEL_MAX_BYTES)
 	test -z "$$($(NM) -u $(MILO_KERNEL_OBJECT))"
 	$(PYTHON) $(MILO_ROUTING_TEST)
-	$(PYTHON) $(MILO_STORAGE_TEST) $(MILO_FLOPPY) $(MILO_FILES_DIR) $(MILO_KERNEL)
+	$(PYTHON) $(MILO_STORAGE_TEST) $(MILO_FLOPPY) $(MILO_FILES_DIR) $(MILO_KERNEL) \
+		boot/milo/stage2.S
 	$(PYTHON) $(MILO_SHELL_TEST) boot/milo/kernel.S boot/milo/shell.inc \
 		boot/milo/mouse.inc $(MILO_KERNEL)
 

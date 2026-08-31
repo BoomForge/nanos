@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.27 extends the accepted V0.26 native root desktop. Its interaction model
+V0.27.1 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -16,7 +16,8 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 ## Root desktop
 
 - Stage 1 clears the firmware text and remains visually silent during normal
-  loading. Stage 2 displays the M.I.L.O splash and initialization status; the
+  loading. Stage 2 displays the M.I.L.O splash and initialization status,
+  holds the completed splash for a true minimum of three seconds, and the
   kernel keeps it visible until RTC, terminal, window, filesystem, and mouse
   initialization are complete.
 - Startup then renders the dark M.I.L.O root surface, pointer, right-side
@@ -41,7 +42,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.27` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.27.1` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -52,7 +53,8 @@ normal windows naturally cover it. It reports:
 
 - kernel version;
 - `I386 // POLL` CPU mode;
-- live input-event rate and a rolling 20-second activity graph;
+- live input-event rate and a rolling 20-second graph scaled across 0--120+
+  events per second;
 - current state for System, FileHound, Traits, and Terminal (`ACTIVE`, `OPEN`,
   `MINIMIZED`, or `CLOSED`);
 - open and minimized application counts;
@@ -67,7 +69,7 @@ normal windows naturally cover it. It reports:
 The current kernel has no scheduler or idle-time sampling and intentionally
 does not claim a CPU-use percentage. Its input loop busy-polls, so a percentage
 would be misleading until timer accounting and an idle path exist. The graph is
-therefore labelled `ACTIVITY` and plots measured events per RTC second.
+therefore labelled `EVENT RATE` and plots measured events per RTC second.
 
 The clock reads the PC-compatible CMOS RTC directly. It handles BCD or binary
 fields and 12-hour or 24-hour firmware modes. QEMU should use
@@ -82,10 +84,16 @@ network time dependency.
 - Clicking a visible window focuses and raises it.
 - Dragging a non-maximized titlebar shows a lightweight XOR outline; releasing
   commits a position bounded to the 1024-by-704 workspace above the taskbar.
+- Dragging the three-step bottom-right grip shows the same lightweight outline;
+  releasing commits a size bounded by the application's minimum geometry, the
+  right screen edge, and the taskbar workspace.
 - Each titlebar has minimize, maximize/restore, and close controls.
 - Maximize uses the full workspace above the taskbar.
 - Closed applications are reopened from the right-click menu. Minimized
-  applications can be restored from either the taskbar or root menu.
+applications can be restored from either the taskbar or root menu.
+- Application output is clipped to the current client rectangle. System,
+  FileHound, and Traits reposition or scale their useful content as the window
+  changes size rather than drawing through the frame.
 
 Typing while Terminal is hidden or minimized restores and focuses it. This
 keeps an immediate keyboard recovery path without forcing a terminal-shaped
@@ -94,9 +102,10 @@ region onto the desktop.
 ## Terminal surface
 
 Terminal output is stored in a fixed 100-column by 25-row character surface at
-physical address `0x32800`. This 2,500-byte surface is redrawn inside the
-Terminal client area after a move, focus change, cover/uncover, minimize,
-maximize, or whole-desktop recomposition.
+physical address `0x32800`. The visible row and column count is derived from
+the current Terminal client size, capped by that small backing surface. It is
+redrawn inside the client area after a move, resize, focus change,
+cover/uncover, minimize, maximize, or whole-desktop recomposition.
 
 The terminal cursor is tracked relative to the Terminal window when that
 window moves or changes size. GUI captions temporarily disable terminal
@@ -149,7 +158,7 @@ remains read-only assistance and cannot authorize a file mutation.
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.27 leaves the cursor visible while bytes one and two arrive, then
+input. V0.27.1 leaves the cursor visible while bytes one and two arrive, then
 erases, moves, and redraws it once when byte three completes the packet. This
 removes the former three-redraw movement flicker. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
@@ -173,17 +182,18 @@ make verify-milo-boot
 ```
 
 This audits the boot layout, routing fixtures, full-volume FAT12 contents,
-binary version markers, application-hidden startup, CMOS RTC normalization,
-live activity sampling, honest native status collection, minimized-only task
-slots and restore routing, taskbar-aware menu/window bounds, GUI/Terminal text
-isolation, root-menu geometry, hover and routing, four-window behavior,
-translated FileHound rows and controls, pending-action buffer isolation, drag
-dispatch, title actions, terminal surface isolation, complete-packet cursor
-redraw, PS/2 button handling, and cursor storage.
+binary version markers, application-hidden startup, RTC-backed splash hold,
+CMOS normalization, scaled live activity sampling, honest native status
+collection, minimized-only task slots and restore routing, taskbar-aware
+menu/window bounds, bounded resize dispatch, client clipping, adaptive
+FileHound layout, dynamic Terminal viewport, GUI/Terminal text isolation,
+root-menu geometry, hover and routing, four-window behavior, pending-action
+buffer isolation, title actions, complete-packet cursor redraw, PS/2 button
+handling, and cursor storage.
 
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

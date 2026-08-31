@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the V0.27 boot layout and full-volume FAT12 test fixture."""
+"""Audit the V0.27.1 boot layout, splash hold, and FAT12 fixture."""
 
 from pathlib import Path
 import struct
@@ -46,14 +46,17 @@ def extract_file(image, fat, entry, data_offset, data_clusters):
 
 
 def main():
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: test_milo_storage_contract.py IMAGE FILES_DIR KERNEL")
+    if len(sys.argv) != 5:
+        raise SystemExit(
+            "usage: test_milo_storage_contract.py IMAGE FILES_DIR KERNEL STAGE2.S"
+        )
 
     image = Path(sys.argv[1]).read_bytes()
     files_dir = Path(sys.argv[2])
     kernel = Path(sys.argv[3]).read_bytes()
+    stage2_source = Path(sys.argv[4]).read_text()
     assert len(image) == IMAGE_SIZE, len(image)
-    assert image[3:11] == b"MILO0.27", image[3:11]
+    assert image[3:11] == b"MILO27.1", image[3:11]
     assert b"M.I.L.O stage 1 online" not in image
     assert b"M.I.L.O stage 2 online" not in image
     assert b"M.I.L.O SYSTEM INITIALISING..." in image
@@ -72,7 +75,18 @@ def main():
     assert len(kernel) <= KERNEL_RESERVED_SECTORS * SECTOR_SIZE
     kernel_offset = KERNEL_START_SECTOR * SECTOR_SIZE
     assert image[kernel_offset:kernel_offset + len(kernel)] == kernel
-    assert b"M.I.L.O VERSION 0.27" in kernel
+    assert b"M.I.L.O VERSION 0.27.1" in kernel
+
+    for fragment in (
+        "call render_status\n    call hold_splash_minimum",
+        "hold_splash_minimum:",
+        "movl $4, (STAGE2_LOAD_ADDRESS + splash_wait_edges - _start)",
+        "movl $0x08000000, %ecx",
+        "splash_read_second:",
+        "outb %al, $0x70",
+        "inb $0x71, %al",
+    ):
+        assert fragment in stage2_source, fragment
 
     root_sectors = (root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE
     fat1_sector = reserved

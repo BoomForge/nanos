@@ -11,13 +11,15 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.27 provides:
+V0.27.1 provides:
 
-- silent normal loading followed by the native ASCII M.I.L.O splash;
-- a Fluxbox-inspired right-click root menu and four movable application windows;
+- silent normal loading followed by a native ASCII M.I.L.O splash held for at
+  least three seconds;
+- a Fluxbox-inspired right-click root menu and four movable, resizable
+  application windows;
 - a minimized-only taskbar with click-to-restore buttons;
 - CMOS-backed local date/time and right-aligned version status;
-- a native Conky-inspired overlay with a real event-activity graph,
+- a native Conky-inspired overlay with a real 0--120+ events/second graph,
   application states, RAM, FAT12 capacity, file/event counts, video, network,
   and honest unsupported-sensor reporting;
 - native FileHound-inspired FAT12 browsing and real open/edit/copy/rename/delete;
@@ -44,13 +46,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.27.img
+build/M.I.L.O-floppy-V0.27.1.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -65,6 +67,7 @@ date and time. M.I.L.O contains no network time client or timezone database.
 
 - Right-click the root desktop to open applications.
 - Minimize a window to place it on the taskbar; click its button to restore it.
+- Drag a non-maximized window's bottom-right grip to resize it.
 - Typing automatically opens or restores Terminal.
 - File-changing operations remain explicit and guarded.
 

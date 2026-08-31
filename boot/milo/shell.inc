@@ -36,6 +36,8 @@
 .equ WM_TASK_BUTTON_WIDTH, 144
 .equ WM_TASK_BUTTON_STRIDE, 152
 .equ WM_ACTIVITY_SAMPLES, 20
+.equ WM_ACTIVITY_GRAPH_MAX, 120
+.equ WM_RESIZE_GRIP, 20
 
 render_shell:
     call gui_save_terminal_state
@@ -73,6 +75,7 @@ wm_initialize:
     movb $WM_TERMINAL, (KERNEL_LOAD_ADDRESS + wm_z_order + 3 - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
+    movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
     movb $0xff, (KERNEL_LOAD_ADDRESS + rtc_last_second - _start)
     movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
@@ -82,6 +85,23 @@ wm_initialize:
     ret
 
 wm_sync_terminal_bounds:
+    movl (KERNEL_LOAD_ADDRESS + wm_w + WM_TERMINAL * 4 - _start), %eax
+    subl $32, %eax
+    shrl $3, %eax
+    cmpl $TERMINAL_COLUMNS, %eax
+    jbe wm_terminal_columns_ready
+    movl $TERMINAL_COLUMNS, %eax
+wm_terminal_columns_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_h + WM_TERMINAL * 4 - _start), %eax
+    subl $56, %eax
+    shrl $4, %eax
+    cmpl $TERMINAL_ROWS, %eax
+    jbe wm_terminal_rows_ready
+    movl $TERMINAL_ROWS, %eax
+wm_terminal_rows_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start)
+
     movl (KERNEL_LOAD_ADDRESS + wm_x + WM_TERMINAL * 4 - _start), %eax
     addl $16, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_left - _start)
@@ -90,12 +110,18 @@ wm_sync_terminal_bounds:
     movl (KERNEL_LOAD_ADDRESS + wm_y + WM_TERMINAL * 4 - _start), %eax
     addl $40, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_top - _start)
-    addl $384, %eax
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %ecx
+    decl %ecx
+    shll $4, %ecx
+    addl %ecx, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_last_line - _start)
     addl $16, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_bottom - _start)
     movl (KERNEL_LOAD_ADDRESS + terminal_left - _start), %eax
-    addl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    decl %ecx
+    shll $3, %ecx
+    addl %ecx, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_right - _start)
     ret
 
@@ -131,6 +157,8 @@ rtc_poll_update:
      * leave artifacts when the pointer moves again. Keep sampling the real
      * state, then repaint normally on the next second or drag release. */
     cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
+    jne rtc_poll_complete
+    cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)
     jne rtc_poll_complete
     call hide_mouse_cursor
     call wm_render_live_update
@@ -311,10 +339,21 @@ activity_shift_next:
     jmp activity_shift_next
 activity_store_latest:
     movl (KERNEL_LOAD_ADDRESS + activity_rate - _start), %eax
-    cmpl $15, %eax
+    cmpl $WM_ACTIVITY_GRAPH_MAX, %eax
     jbe activity_sample_clamped
-    movl $15, %eax
+    movl $WM_ACTIVITY_GRAPH_MAX, %eax
 activity_sample_clamped:
+    /* Map 0..120 measured events per second onto the 45-pixel graph. This
+     * preserves useful gradation for normal PS/2 mouse packet rates instead of
+     * saturating almost every active sample at the old 15-event ceiling. */
+    imull $3, %eax
+    shrl $3, %eax
+    testl %eax, %eax
+    jnz activity_sample_scaled
+    cmpl $0, (KERNEL_LOAD_ADDRESS + activity_rate - _start)
+    je activity_sample_scaled
+    movl $1, %eax
+activity_sample_scaled:
     movb %al, (KERNEL_LOAD_ADDRESS + activity_history + WM_ACTIVITY_SAMPLES - 1 - _start)
     popal
     ret
@@ -411,6 +450,11 @@ wm_render_system_overlay:
     call gui_print_at
 
     call wm_render_activity_graph
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_graph_scale - _start), %esi
+    movl $824, %eax
+    movl $220, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_apps - _start), %esi
     movl $824, %eax
@@ -578,7 +622,6 @@ gui_overlay_graph_next:
     movzbl (KERNEL_LOAD_ADDRESS + activity_history - _start)(,%ecx), %edx
     testl %edx, %edx
     jz gui_overlay_graph_advance
-    imull $3, %edx
     movl %edx, (KERNEL_LOAD_ADDRESS + gui_overlay_graph_height - _start)
     movl %ecx, %eax
     shll $3, %eax
@@ -827,6 +870,7 @@ wm_window_inactive_text:
 wm_window_text_ready:
     call gui_print_at
     call wm_render_title_buttons
+    call wm_enable_client_clip
 
     movl (KERNEL_LOAD_ADDRESS + wm_current - _start), %eax
     cmpl $WM_TERMINAL, %eax
@@ -855,7 +899,67 @@ wm_render_terminal_content:
 wm_render_content_complete:
     movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_x - _start)
     movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    call wm_render_resize_grip
 wm_render_window_complete:
+    ret
+
+wm_enable_client_clip:
+    movl (KERNEL_LOAD_ADDRESS + wm_current_x - _start), %eax
+    addl $8, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_left - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_y - _start), %eax
+    addl $36, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_top - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_x - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $8, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_right - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_y - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %eax
+    subl $8, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    ret
+
+/* Three compact diagonal steps communicate the classic bottom-right resize
+ * affordance without importing a cursor theme or bitmap widget set. */
+wm_render_resize_grip:
+    movl (KERNEL_LOAD_ADDRESS + wm_current - _start), %eax
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%eax), %edx
+    testb $WM_FLAG_MAXIMIZED, %dl
+    jnz wm_resize_grip_complete
+    movl (KERNEL_LOAD_ADDRESS + wm_current_x - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $18, %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_current_y - _start), %ebx
+    addl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %ebx
+    subl $6, %ebx
+    movl $12, %ecx
+    movl $2, %edx
+    movl $GUI_COLOR_LIGHT, %esi
+    call gui_fill_rectangle
+    movl (KERNEL_LOAD_ADDRESS + wm_current_x - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $14, %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_current_y - _start), %ebx
+    addl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %ebx
+    subl $10, %ebx
+    movl $8, %ecx
+    movl $2, %edx
+    movl $GUI_COLOR_LIGHT, %esi
+    call gui_fill_rectangle
+    movl (KERNEL_LOAD_ADDRESS + wm_current_x - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $10, %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_current_y - _start), %ebx
+    addl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %ebx
+    subl $14, %ebx
+    movl $4, %ecx
+    movl $2, %edx
+    movl $GUI_COLOR_LIGHT, %esi
+    call gui_fill_rectangle
+wm_resize_grip_complete:
     ret
 
 wm_render_title_buttons:
@@ -902,7 +1006,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $904, %eax
+    movl $888, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -1019,83 +1123,109 @@ wm_render_root_menu:
     ret
 
 gui_render_home:
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    shrl $1, %eax
+    addl $WM_REFERENCE_X, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    addl $WM_REFERENCE_X, %eax
+    subl $208, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start)
+    movl %eax, %ecx
+    addl $80, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_home_memory_x - _start)
+    addl $48, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_home_mib_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %eax
+    addl $WM_REFERENCE_Y, %eax
+    subl $32, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_home_hint_y - _start)
     movl $(KERNEL_LOAD_ADDRESS + gui_home_heading - _start), %esi
     movl $280, %eax
     movl $104, %edx
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
 
-    movl $624, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start), %eax
     movl $292, %ebx
     movl $112, %ecx
     movl $GUI_COLOR_PINK, %edx
     call gui_draw_circle
-    movl $624, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start), %eax
     movl $292, %ebx
     movl $106, %ecx
     movl $GUI_COLOR_ACTIVE, %edx
     call gui_draw_circle
-    movl $624, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start), %eax
     movl $292, %ebx
     movl $98, %ecx
     movl $GUI_COLOR_LILAC, %edx
     call gui_draw_circle
 
     movl $(KERNEL_LOAD_ADDRESS + gui_ring_name - _start), %esi
-    movl $596, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start), %eax
+    subl $28, %eax
     movl $278, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_ring_state - _start), %esi
-    movl $560, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_ring_x - _start), %eax
+    subl $64, %eax
     movl $310, %edx
     movl $GUI_COLOR_GREEN, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_system_heading - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start), %eax
     movl $152, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_version_status - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start), %eax
     movl $192, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_storage_status - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start), %eax
     movl $224, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_memory_status - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start), %eax
     movl $256, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl BOOT_MEMORY_MIB(%ebp), %eax
-    movl $872, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_home_memory_x - _start), %ebx
     movl $256, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_mib_short - _start), %esi
-    movl $920, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_mib_x - _start), %eax
     movl $256, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_network_status - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_home_system_x - _start), %eax
     movl $288, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_home_hint - _start), %esi
     movl $416, %eax
-    movl $472, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_home_hint_y - _start), %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     ret
 
 gui_render_traits:
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $432, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_trait_bar_width - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %eax
+    addl $WM_REFERENCE_Y, %eax
+    subl $80, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_trait_note_y - _start)
     movl $(KERNEL_LOAD_ADDRESS + gui_traits_heading - _start), %esi
     movl $280, %eax
     movl $104, %edx
@@ -1127,7 +1257,7 @@ gui_render_traits:
 
     movl $(KERNEL_LOAD_ADDRESS + gui_traits_note - _start), %esi
     movl $296, %eax
-    movl $424, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_trait_note_y - _start), %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     ret
@@ -1152,14 +1282,18 @@ gui_draw_trait_row:
 
     movl $520, %eax
     movl (KERNEL_LOAD_ADDRESS + gui_trait_y - _start), %ebx
-    movl $400, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_trait_bar_width - _start), %ecx
     movl $16, %edx
     movl $GUI_COLOR_PANEL_ALT, %esi
     call gui_fill_rectangle
-    movl (KERNEL_LOAD_ADDRESS + gui_trait_value - _start), %ecx
-    testl %ecx, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_trait_value - _start), %eax
+    testl %eax, %eax
     jz gui_trait_complete
-    shll $2, %ecx
+    imull (KERNEL_LOAD_ADDRESS + gui_trait_bar_width - _start), %eax
+    xorl %edx, %edx
+    movl $100, %ecx
+    divl %ecx
+    movl %eax, %ecx
     movl $520, %eax
     movl (KERNEL_LOAD_ADDRESS + gui_trait_y - _start), %ebx
     movl $16, %edx
@@ -1169,6 +1303,7 @@ gui_trait_complete:
     ret
 
 gui_render_file_browser:
+    call gui_prepare_file_layout
     call gui_build_file_page
     movl $(KERNEL_LOAD_ADDRESS + gui_files_heading - _start), %esi
     movl $184, %eax
@@ -1181,19 +1316,19 @@ gui_render_file_browser:
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_file_count_label - _start), %esi
-    movl $824, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_count_label_x - _start), %eax
     movl $92, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_total_files - _start), %eax
-    movl $880, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_count_x - _start), %ebx
     movl $92, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
 
     movl $184, %eax
     movl $116, %ebx
-    movl $800, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_table_width - _start), %ecx
     movl $40, %edx
     movl $GUI_COLOR_PANEL_ALT, %esi
     call gui_draw_bevel_box
@@ -1208,13 +1343,13 @@ gui_render_file_browser:
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
-    movl $888, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_previous_x - _start), %eax
     movl $116, %ebx
     movl $40, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_previous_label - _start), %edx
     movl $GUI_COLOR_CLASSIC, %esi
     call gui_draw_classic_button
-    movl $944, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_next_x - _start), %eax
     movl $116, %ebx
     movl $40, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_next_label - _start), %edx
@@ -1223,7 +1358,7 @@ gui_render_file_browser:
 
     movl $184, %eax
     movl $164, %ebx
-    movl $800, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_table_width - _start), %ecx
     movl $24, %edx
     movl $GUI_COLOR_ACTIVE, %esi
     call gui_fill_rectangle
@@ -1233,12 +1368,12 @@ gui_render_file_browser:
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_type_label - _start), %esi
-    movl $624, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_type_x - _start), %eax
     movl $168, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_size_label - _start), %esi
-    movl $792, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_size_x - _start), %eax
     movl $168, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
@@ -1265,7 +1400,7 @@ gui_file_row_face_ready:
 gui_file_row_fill:
     movl $184, %eax
     movl (KERNEL_LOAD_ADDRESS + gui_row_y - _start), %ebx
-    movl $800, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_table_width - _start), %ecx
     movl $20, %edx
     call gui_fill_rectangle
     movl (KERNEL_LOAD_ADDRESS + gui_render_index - _start), %ebx
@@ -1287,19 +1422,19 @@ gui_file_row_fill:
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_file_type_label - _start), %esi
-    movl $624, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_type_x - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + gui_row_y - _start), %edx
     addl $2, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl 28(%edi), %eax
-    movl $792, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_size_x - _start), %ebx
     movl (KERNEL_LOAD_ADDRESS + gui_row_y - _start), %edx
     addl $2, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_bytes_short - _start), %esi
-    movl $856, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_bytes_x - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + gui_row_y - _start), %edx
     addl $2, %edx
     movl $GUI_COLOR_DIM, %ecx
@@ -1310,50 +1445,103 @@ gui_file_row_fill:
 gui_file_rows_complete:
     movl $(KERNEL_LOAD_ADDRESS + gui_file_status - _start), %esi
     movl $184, %eax
-    movl $432, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start), %edx
     movl $GUI_COLOR_GREEN, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_total_files - _start), %eax
     movl $320, %ebx
-    movl $432, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start), %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_items_label - _start), %esi
     movl $352, %eax
-    movl $432, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start), %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
 
     movl $184, %eax
-    movl $448, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ebx
     movl $104, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_open_label - _start), %edx
     movl $GUI_COLOR_ACTIVE, %esi
     call gui_draw_classic_button
     movl $304, %eax
-    movl $448, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ebx
     movl $96, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_edit_label - _start), %edx
     movl $GUI_COLOR_CLASSIC, %esi
     call gui_draw_classic_button
     movl $416, %eax
-    movl $448, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ebx
     movl $96, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_copy_label - _start), %edx
     movl $GUI_COLOR_CLASSIC, %esi
     call gui_draw_classic_button
     movl $528, %eax
-    movl $448, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ebx
     movl $112, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_rename_label - _start), %edx
     movl $GUI_COLOR_CLASSIC, %esi
     call gui_draw_classic_button
     movl $656, %eax
-    movl $448, %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ebx
     movl $112, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_delete_label - _start), %edx
     movl $GUI_COLOR_RED, %esi
     call gui_draw_classic_button
+    ret
+
+/* FileHound keeps its table, paging controls, status, and actions inside a
+ * resized client. Coordinates remain in the established reference space so
+ * existing moved-window input translation stays valid. */
+gui_prepare_file_layout:
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    addl $WM_REFERENCE_X, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_file_layout_right - _start)
+    movl %eax, %ecx
+    subl $176, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_count_label_x - _start)
+    movl %eax, %ecx
+    subl $120, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_count_x - _start)
+    movl %eax, %ecx
+    subl $112, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_previous_x - _start)
+    movl %eax, %ecx
+    subl $56, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_next_x - _start)
+    movl %eax, %ecx
+    subl $376, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_type_x - _start)
+    movl %eax, %ecx
+    subl $208, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_size_x - _start)
+    movl %eax, %ecx
+    subl $144, %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_file_bytes_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $32, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_file_table_width - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %eax
+    addl $WM_REFERENCE_Y, %eax
+    subl $56, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start)
+    subl $16, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start)
+    subl $192, %eax
+    xorl %edx, %edx
+    movl $24, %ecx
+    divl %ecx
+    testl %eax, %eax
+    jnz gui_file_capacity_nonzero
+    movl $1, %eax
+gui_file_capacity_nonzero:
+    cmpl $GUI_FILE_ROWS, %eax
+    jbe gui_file_capacity_ready
+    movl $GUI_FILE_ROWS, %eax
+gui_file_capacity_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start)
     ret
 
 /* EDI=root entry. Return a compact FileHound type label in ESI and retain a
@@ -1400,7 +1588,7 @@ gui_build_entry_next:
     cmpl (KERNEL_LOAD_ADDRESS + gui_page_offset - _start), %eax
     jb gui_build_count_entry
     movzbl (KERNEL_LOAD_ADDRESS + gui_visible_files - _start), %ebx
-    cmpl $GUI_FILE_ROWS, %ebx
+    cmpl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %ebx
     jae gui_build_count_entry
     movl %edi, (KERNEL_LOAD_ADDRESS + gui_file_entries - _start)(,%ebx,4)
     incl %ebx
@@ -1583,6 +1771,31 @@ wm_window_found:
     movl (KERNEL_LOAD_ADDRESS + wm_pointer_y - _start), %ebx
     subl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4), %ebx
     movl %ebx, (KERNEL_LOAD_ADDRESS + wm_local_y - _start)
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%eax), %edx
+    testb $WM_FLAG_MAXIMIZED, %dl
+    jnz wm_window_not_resize_grip
+    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    subl $WM_RESIZE_GRIP, %ecx
+    cmpl %ecx, (KERNEL_LOAD_ADDRESS + wm_local_x - _start)
+    jb wm_window_not_resize_grip
+    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %ecx
+    subl $WM_RESIZE_GRIP, %ecx
+    cmpl %ecx, (KERNEL_LOAD_ADDRESS + wm_local_y - _start)
+    jb wm_window_not_resize_grip
+    movb %al, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)
+    movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_x - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_y - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_w - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_h - _start)
+    call render_shell
+    call wm_xor_drag_outline
+    ret
+wm_window_not_resize_grip:
     cmpl $32, %ebx
     jae wm_window_client_click
     movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
@@ -1607,6 +1820,10 @@ wm_window_found:
     movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_x - _start)
     movl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4), %ecx
     movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_y - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_w - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_h - _start)
     call render_shell
     call wm_xor_drag_outline
     ret
@@ -1637,22 +1854,28 @@ gui_file_click:
     jb gui_click_test_rows
     cmpl $156, %edx
     jae gui_click_test_rows
-    cmpl $888, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_previous_x - _start), %ecx
+    cmpl %ecx, %eax
     jb gui_click_test_rows
-    cmpl $928, %eax
+    addl $40, %ecx
+    cmpl %ecx, %eax
     jb gui_click_previous
-    cmpl $944, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_next_x - _start), %ecx
+    cmpl %ecx, %eax
     jb gui_click_test_rows
-    cmpl $984, %eax
+    addl $40, %ecx
+    cmpl %ecx, %eax
     jb gui_click_next
 gui_click_test_rows:
     cmpl $184, %eax
     jb gui_click_test_actions
-    cmpl $984, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_file_layout_right - _start), %ecx
+    subl $16, %ecx
+    cmpl %ecx, %eax
     jae gui_click_test_actions
     cmpl $192, %edx
     jb gui_click_test_actions
-    cmpl $432, %edx
+    cmpl (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start), %edx
     jae gui_click_test_actions
     movl %edx, %eax
     subl $192, %eax
@@ -1669,9 +1892,11 @@ gui_click_test_actions:
     movl (KERNEL_LOAD_ADDRESS + wm_pointer_y - _start), %edx
     subl (KERNEL_LOAD_ADDRESS + wm_y + WM_FILES * 4 - _start), %edx
     addl $WM_REFERENCE_Y, %edx
-    cmpl $448, %edx
+    cmpl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %edx
     jb gui_click_complete
-    cmpl $488, %edx
+    movl (KERNEL_LOAD_ADDRESS + gui_file_action_y - _start), %ecx
+    addl $40, %ecx
+    cmpl %ecx, %edx
     jae gui_click_complete
     movl (KERNEL_LOAD_ADDRESS + wm_pointer_x - _start), %eax
     subl (KERNEL_LOAD_ADDRESS + wm_x + WM_FILES * 4 - _start), %eax
@@ -1844,6 +2069,20 @@ wm_reposition_terminal_cursor:
     movl BOOT_CURSOR_Y(%ebp), %edx
     subl (KERNEL_LOAD_ADDRESS + terminal_top - _start), %edx
     call wm_sync_terminal_bounds
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %eax
+    decl %eax
+    shll $3, %eax
+    cmpl %eax, %ecx
+    jbe wm_terminal_cursor_x_ready
+    movl %eax, %ecx
+wm_terminal_cursor_x_ready:
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %eax
+    decl %eax
+    shll $4, %eax
+    cmpl %eax, %edx
+    jbe wm_terminal_cursor_y_ready
+    movl %eax, %edx
+wm_terminal_cursor_y_ready:
     addl (KERNEL_LOAD_ADDRESS + terminal_left - _start), %ecx
     movl %ecx, BOOT_CURSOR_X(%ebp)
     addl (KERNEL_LOAD_ADDRESS + terminal_top - _start), %edx
@@ -1851,6 +2090,9 @@ wm_reposition_terminal_cursor:
     ret
 
 gui_handle_drag:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
+    cmpl $WM_NONE, %eax
+    jne wm_resize_drag
     movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
     cmpl $WM_NONE, %eax
     je wm_drag_complete
@@ -1886,7 +2128,47 @@ wm_drag_y_ready:
 wm_drag_complete:
     ret
 
+wm_resize_drag:
+    call wm_xor_drag_outline
+    movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + mouse_x - _start), %ecx
+    subl (KERNEL_LOAD_ADDRESS + wm_x - _start)(,%eax,4), %ecx
+    incl %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_min_w - _start)(,%eax,4), %edx
+    cmpl %edx, %ecx
+    jae wm_resize_width_min_ready
+    movl %edx, %ecx
+wm_resize_width_min_ready:
+    movl $1024, %edx
+    subl (KERNEL_LOAD_ADDRESS + wm_x - _start)(,%eax,4), %edx
+    cmpl %edx, %ecx
+    jbe wm_resize_width_ready
+    movl %edx, %ecx
+wm_resize_width_ready:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_w - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %ecx
+    subl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4), %ecx
+    incl %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_min_h - _start)(,%eax,4), %edx
+    cmpl %edx, %ecx
+    jae wm_resize_height_min_ready
+    movl %edx, %ecx
+wm_resize_height_min_ready:
+    movl $WM_TASKBAR_Y, %edx
+    subl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4), %edx
+    cmpl %edx, %ecx
+    jbe wm_resize_height_ready
+    movl %edx, %ecx
+wm_resize_height_ready:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_h - _start)
+    call wm_xor_drag_outline
+    ret
+
 gui_handle_release:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
+    cmpl $WM_NONE, %eax
+    jne wm_release_resize
     movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
     cmpl $WM_NONE, %eax
     je wm_release_complete
@@ -1905,30 +2187,40 @@ wm_release_position_ready:
 wm_release_complete:
     ret
 
+wm_release_resize:
+    call wm_xor_drag_outline
+    movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_w - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4)
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_h - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)
+    cmpl $WM_TERMINAL, %eax
+    jne wm_release_resize_ready
+    call wm_reposition_terminal_cursor
+wm_release_resize_ready:
+    movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)
+    call render_shell
+    ret
+
 wm_xor_drag_outline:
     pushal
-    movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
-    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_w - _start), %ecx
     movl (KERNEL_LOAD_ADDRESS + wm_preview_x - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + wm_preview_y - _start), %ebx
     call wm_xor_horizontal
-    movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
-    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_w - _start), %ecx
     movl (KERNEL_LOAD_ADDRESS + wm_preview_x - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + wm_preview_y - _start), %ebx
-    movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %edx
-    addl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%edx,4), %ebx
+    addl (KERNEL_LOAD_ADDRESS + wm_preview_h - _start), %ebx
     decl %ebx
     call wm_xor_horizontal
-    movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
-    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %edx
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_h - _start), %edx
     movl (KERNEL_LOAD_ADDRESS + wm_preview_x - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + wm_preview_y - _start), %ebx
     call wm_xor_vertical
-    movzbl (KERNEL_LOAD_ADDRESS + wm_drag_window - _start), %eax
-    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %edx
+    movl (KERNEL_LOAD_ADDRESS + wm_preview_h - _start), %edx
     movl (KERNEL_LOAD_ADDRESS + wm_preview_x - _start), %ecx
-    addl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4), %ecx
+    addl (KERNEL_LOAD_ADDRESS + wm_preview_w - _start), %ecx
     decl %ecx
     movl %ecx, %eax
     movl (KERNEL_LOAD_ADDRESS + wm_preview_y - _start), %ebx
@@ -1973,9 +2265,9 @@ gui_click_previous:
     movl (KERNEL_LOAD_ADDRESS + gui_page_offset - _start), %eax
     testl %eax, %eax
     jz gui_click_complete
-    cmpl $GUI_FILE_ROWS, %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %eax
     jb gui_page_first
-    subl $GUI_FILE_ROWS, %eax
+    subl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %eax
     jmp gui_page_previous_store
 gui_page_first:
     xorl %eax, %eax
@@ -1986,7 +2278,7 @@ gui_page_previous_store:
     ret
 gui_click_next:
     movl (KERNEL_LOAD_ADDRESS + gui_page_offset - _start), %eax
-    addl $GUI_FILE_ROWS, %eax
+    addl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %eax
     cmpl (KERNEL_LOAD_ADDRESS + gui_total_files - _start), %eax
     jae gui_click_complete
     movl %eax, (KERNEL_LOAD_ADDRESS + gui_page_offset - _start)
@@ -2204,13 +2496,50 @@ gui_copy_name_complete:
     ret
 
 gui_fill_rectangle:
+    pushal
     addl (KERNEL_LOAD_ADDRESS + gui_draw_offset_x - _start), %eax
     addl (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start), %ebx
     testl %ecx, %ecx
-    jz gui_fill_complete
+    jz gui_fill_restore
     testl %edx, %edx
-    jz gui_fill_complete
-    pushal
+    jz gui_fill_restore
+    cmpb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    je gui_fill_clipped
+
+    movl (KERNEL_LOAD_ADDRESS + gui_clip_left - _start), %edi
+    cmpl %edi, %eax
+    jae gui_fill_left_ready
+    subl %eax, %edi
+    cmpl %ecx, %edi
+    jae gui_fill_restore
+    subl %edi, %ecx
+    addl %edi, %eax
+gui_fill_left_ready:
+    movl (KERNEL_LOAD_ADDRESS + gui_clip_top - _start), %edi
+    cmpl %edi, %ebx
+    jae gui_fill_top_ready
+    subl %ebx, %edi
+    cmpl %edx, %edi
+    jae gui_fill_restore
+    subl %edi, %edx
+    addl %edi, %ebx
+gui_fill_top_ready:
+    movl %eax, %edi
+    addl %ecx, %edi
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %edi
+    jbe gui_fill_right_ready
+    movl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %ecx
+    subl %eax, %ecx
+    jbe gui_fill_restore
+gui_fill_right_ready:
+    movl %ebx, %edi
+    addl %edx, %edi
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start), %edi
+    jbe gui_fill_clipped
+    movl (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start), %edx
+    subl %ebx, %edx
+    jbe gui_fill_restore
+gui_fill_clipped:
     movl %edx, (KERNEL_LOAD_ADDRESS + gui_rect_height - _start)
     movl %ebx, %edi
     imull BOOT_PITCH(%ebp), %edi
@@ -2230,8 +2559,8 @@ gui_fill_row:
     addl %edx, %edi
     decl (KERNEL_LOAD_ADDRESS + gui_rect_height - _start)
     jnz gui_fill_row
+gui_fill_restore:
     popal
-gui_fill_complete:
     ret
 
 /* EAX=x, EBX=y, ECX=width, EDX=height, ESI=face color. */
@@ -2383,15 +2712,33 @@ gui_print_at:
 gui_print_raw:
     cmpl $752, BOOT_CURSOR_Y(%ebp)
     ja gui_print_raw_complete
+    cmpb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    je gui_print_raw_next
+    movl BOOT_CURSOR_Y(%ebp), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_top - _start), %eax
+    jb gui_print_raw_complete
+    addl $16, %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start), %eax
+    ja gui_print_raw_complete
 gui_print_raw_next:
     movzbl (%esi), %eax
     testb %al, %al
     jz gui_print_raw_complete
     cmpl $1016, BOOT_CURSOR_X(%ebp)
     ja gui_print_raw_complete
+    cmpb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    je gui_print_raw_draw
+    movl BOOT_CURSOR_X(%ebp), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_left - _start), %eax
+    jb gui_print_raw_skip
+    addl $8, %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %eax
+    ja gui_print_raw_complete
+gui_print_raw_draw:
     pushal
     call draw_character
     popal
+gui_print_raw_skip:
     incl %esi
     addl $8, BOOT_CURSOR_X(%ebp)
     jmp gui_print_raw_next
@@ -2530,11 +2877,23 @@ gui_plot_circle_octants:
     ret
 
 gui_plot_pixel:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    je gui_plot_pixel_draw
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_left - _start), %eax
+    jb gui_plot_pixel_complete
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %eax
+    jae gui_plot_pixel_complete
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_top - _start), %edx
+    jb gui_plot_pixel_complete
+    cmpl (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start), %edx
+    jae gui_plot_pixel_complete
+gui_plot_pixel_draw:
     imull BOOT_PITCH(%ebp), %edx
     addl BOOT_FRAMEBUFFER(%ebp), %edx
     shll $2, %eax
     addl %eax, %edx
     movl %ecx, (%edx)
+gui_plot_pixel_complete:
     ret
 
 gui_terminal_window_title: .asciz "TERMINAL // MILO COMMAND INTERFACE"
@@ -2544,11 +2903,12 @@ gui_window_traits_caption: .asciz "M.I.L.O TRAIT MONITOR"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.27"
+gui_overlay_version: .asciz "0.27.1"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
-gui_overlay_activity: .asciz "ACTIVITY"
+gui_overlay_activity: .asciz "EVENT RATE"
 gui_overlay_events_per_second: .asciz "EV/S"
+gui_overlay_graph_scale: .asciz "0..120+ EV/S"
 gui_overlay_apps: .asciz "APPS"
 gui_overlay_open_short: .asciz "OPEN"
 gui_overlay_min_short: .asciz "MIN"
@@ -2571,7 +2931,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.27"
+gui_taskbar_version: .asciz "M.I.L.O V0.27.1"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -2631,6 +2991,10 @@ gui_saved_cursor_y: .long 0
 gui_saved_color: .long 0
 gui_draw_offset_x: .long 0
 gui_draw_offset_y: .long 0
+gui_clip_left: .long 0
+gui_clip_top: .long 0
+gui_clip_right: .long 1024
+gui_clip_bottom: .long 768
 gui_bevel_x: .long 0
 gui_bevel_y: .long 0
 gui_bevel_w: .long 0
@@ -2641,6 +3005,13 @@ gui_button_width: .long 0
 gui_button_label: .long 0
 gui_trait_value: .long 0
 gui_trait_y: .long 0
+gui_home_ring_x: .long 584
+gui_home_system_x: .long 792
+gui_home_memory_x: .long 872
+gui_home_mib_x: .long 920
+gui_home_hint_y: .long 472
+gui_trait_bar_width: .long 400
+gui_trait_note_y: .long 424
 gui_circle_center_x: .long 0
 gui_circle_center_y: .long 0
 gui_circle_x: .long 0
@@ -2663,6 +3034,18 @@ gui_overlay_app_id: .long 0
 gui_overlay_app_y: .long 0
 gui_file_type_label: .long 0
 gui_file_type_color: .long GUI_COLOR_DIM
+gui_file_layout_right: .long 1000
+gui_file_count_label_x: .long 824
+gui_file_count_x: .long 880
+gui_file_previous_x: .long 888
+gui_file_next_x: .long 944
+gui_file_type_x: .long 624
+gui_file_size_x: .long 792
+gui_file_bytes_x: .long 856
+gui_file_table_width: .long 800
+gui_file_action_y: .long 448
+gui_file_status_y: .long 432
+gui_file_row_capacity: .long GUI_FILE_ROWS
 system_event_count: .long 0
 activity_previous_events: .long 0
 activity_current_events: .long 0
@@ -2685,6 +3068,8 @@ wm_drag_offset_x: .long 0
 wm_drag_offset_y: .long 0
 wm_preview_x: .long 0
 wm_preview_y: .long 0
+wm_preview_w: .long 0
+wm_preview_h: .long 0
 wm_menu_x: .long 0
 wm_menu_y: .long 0
 wm_taskbar_count: .long 0
@@ -2693,6 +3078,8 @@ wm_x: .long 64, 104, 144, 96
 wm_y: .long 64, 92, 120, 240
 wm_w: .long 832, 832, 832, 832
 wm_h: .long 456, 456, 456, 456
+wm_min_w: .long 720, 640, 560, 560
+wm_min_h: .long 456, 360, 400, 320
 wm_restore_x: .long 64, 104, 144, 96
 wm_restore_y: .long 64, 92, 120, 240
 wm_restore_w: .long 832, 832, 832, 832
@@ -2712,6 +3099,7 @@ wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL
 wm_flags: .byte 0, 0, 0, 0
 wm_active: .byte WM_NONE
 wm_drag_window: .byte WM_NONE
+wm_resize_window: .byte WM_NONE
 wm_menu_open: .byte 0
 wm_menu_hover: .byte WM_NONE
 wm_taskbar_slots: .space WM_COUNT
@@ -2728,6 +3116,7 @@ rtc_register_b: .byte 0
 rtc_pm_flag: .byte 0
 rtc_last_second: .byte 0xff
 gui_saved_capture: .byte 1
+gui_clip_enabled: .byte 0
 gui_visible_files: .byte 0
 gui_selected_index: .byte 0
 gui_pending_action: .byte GUI_ACTION_NONE

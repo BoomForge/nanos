@@ -439,6 +439,7 @@ protected_mode_entry:
     call clear_framebuffer
     call render_splash
     call render_status
+    call hold_splash_minimum
 
     movl (STAGE2_LOAD_ADDRESS + framebuffer_address - _start), %eax
     movl %eax, (STAGE2_LOAD_ADDRESS + kernel_boot_info + 0 - _start)
@@ -540,6 +541,46 @@ status_new_line:
     jmp status_next_character
 
 status_complete:
+    ret
+
+/* Fast hardware can otherwise replace the splash before a human can see it.
+ * Align to the next CMOS second boundary, then retain three complete seconds.
+ * The watchdog preserves bootability if a non-PC emulator exposes a frozen
+ * RTC register. No scheduler, BIOS interrupt, or fabricated delay is needed. */
+hold_splash_minimum:
+    pushal
+    call splash_read_second
+    movb %al, (STAGE2_LOAD_ADDRESS + splash_wait_second - _start)
+    movl $4, (STAGE2_LOAD_ADDRESS + splash_wait_edges - _start)
+splash_wait_edge:
+    movl $0x08000000, %ecx
+splash_wait_poll:
+    call splash_read_second
+    cmpb (STAGE2_LOAD_ADDRESS + splash_wait_second - _start), %al
+    jne splash_wait_changed
+    decl %ecx
+    jnz splash_wait_poll
+    jmp splash_wait_complete
+splash_wait_changed:
+    movb %al, (STAGE2_LOAD_ADDRESS + splash_wait_second - _start)
+    decl (STAGE2_LOAD_ADDRESS + splash_wait_edges - _start)
+    jnz splash_wait_edge
+splash_wait_complete:
+    movb $0x0d, %al
+    outb %al, $0x70
+    popal
+    ret
+
+splash_read_second:
+splash_wait_uip:
+    movb $0x8a, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    testb $0x80, %al
+    jnz splash_wait_uip
+    movb $0x80, %al
+    outb %al, $0x70
+    inb $0x71, %al
     ret
 
 /* Draw one 8x16 ROM-font glyph into the 32-bit linear framebuffer. */
@@ -786,6 +827,8 @@ splash_cursor:
     .long 0
 splash_remaining:
     .long 0
+splash_wait_edges:
+    .long 0
 glyph_x:
     .long 0
 glyph_y:
@@ -793,6 +836,8 @@ glyph_y:
 glyph_color:
     .long 0
 glyph_character:
+    .byte 0
+splash_wait_second:
     .byte 0
 
 .align 4

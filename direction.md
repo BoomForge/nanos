@@ -139,7 +139,12 @@ real application-state reporting. It also makes normal Stage 1 and Stage 2
 loading visually silent until the M.I.L.O splash is ready, then retains that
 splash until kernel and mouse initialization finish. The remaining apparent
 pointer-edge limit was identified as QEMU's relative mouse capture behaviour
-rather than a kernel coordinate defect.
+rather than a kernel coordinate defect. Runtime testing then showed that fast
+hardware could make the splash effectively invisible and that the first graph
+scale saturated during ordinary input. **V0.27.1** holds the splash for at
+least three seconds, scales the graph across 0--120+ events per second, and
+adds bounded native window resizing with clipped, adaptive application
+layouts and a size-aware Terminal viewport.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -147,8 +152,8 @@ rather than a kernel coordinate defect.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.27 candidate kernel is 27,955 bytes; 32 KiB is reserved for controlled
-  growth, leaving 4,813 bytes in the current kernel region.
+- The V0.27.1 candidate kernel is 29,475 bytes; 32 KiB is reserved for
+  controlled growth, leaving 3,293 bytes in the current kernel region.
 - The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
@@ -278,6 +283,20 @@ contract rather than compensating with per-screen coordinate offsets.
 - Constrain maximize, dragging, and root-menu placement to the workspace above
   the taskbar while preserving every verified storage and terminal path.
 
+### V0.27.1 — visible boot and resizable applications
+
+- Hold the completed M.I.L.O splash for a true minimum of three seconds using
+  the hardware RTC, with a watchdog that preserves boot if the RTC stalls.
+- Relabel the graph `EVENT RATE` and map its rolling history across 0--120+
+  events per second so ordinary mouse and keyboard activity remains readable
+  instead of immediately saturating.
+- Add a visible bottom-right grip to every non-maximized window. Resize within
+  per-application minimums and the workspace boundary above the taskbar.
+- Clip all application drawing to the current client rectangle and adapt Home,
+  FileHound, and Traits geometry when their windows change size.
+- Derive Terminal's visible rows and columns from its current client area while
+  retaining the small fixed 100-by-25 backing surface.
+
 ### V0.28 — graphical document workspace
 
 - Improve the editor beyond the terminal-sized viewport.
@@ -364,3 +383,4 @@ journal records intent and rationale.
 | `polish V0.26.1 native desktop` | Moved cursor redraw to complete PS/2 packets, added root-menu hover and focus accents, and introduced a native right-side system overlay with measured RAM, FAT12 capacity, file, event, video, network, version, CPU-mode, and honest temperature-availability data. | Remove the runtime cursor flicker and give the accepted Fluxbox-like workflow the useful, coherent finish requested without adding fake telemetry or external desktop code. |
 | `fix V0.26.2 UI and add native FileHound` | Separated GUI text and number drawing from Terminal wrapping, brought every browser row into the translated window coordinate contract, and rebuilt Files as a native single-pane FileHound edition with a location strip, aligned Name/Type/Size columns, category accents, paging, item status, classic controls, and isolated repaint storage. | Correct the runtime layout failures at their shared rendering sources and make the primary document workflow polished and recognisably FileHound without importing Go, Win32, Linux, or nonfunctional controls. |
 | `add V0.27 live desktop status` | Silenced normal loader chatter until the persistent boot splash, added a CMOS-backed Australian clock, a right-aligned version/date/time block, a minimized-only restore taskbar, taskbar-aware workspace bounds, real application-state reporting, a rolling event-activity graph with one-second live recomposition, and a primary-branch M.I.L.O build/readme contract. | Make the native Fluxbox-like desktop more familiar and useful while keeping telemetry honest, the root workflow sparse, boot unmistakably M.I.L.O, and the implementation independent of Linux, Conky, an RTC service, a scheduler, or fake CPU statistics. |
+| `refine V0.27.1 splash and window resizing` | Added an RTC-backed minimum splash hold, a readable 0--120+ events/second graph, bounded bottom-right resize grips, client clipping, adaptive System/FileHound/Traits layouts, and a size-aware Terminal viewport. | Runtime proof showed that fast hardware hid the splash and ordinary input saturated the first graph scale; native resizing completes the expected classic window workflow without fake CPU telemetry or drawing outside application frames. |

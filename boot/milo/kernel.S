@@ -3418,14 +3418,17 @@ clear_terminal:
     movl (KERNEL_LOAD_ADDRESS + terminal_left - _start), %eax
     shll $2, %eax
     addl %eax, %edi
-    movl $(TERMINAL_ROWS * 16), %edx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %edx
+    shll $4, %edx
 terminal_clear_row:
-    movl $TERMINAL_COLUMNS, %ecx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
     shll $1, %ecx
     xorl %eax, %eax
     rep stosl
     movl BOOT_PITCH(%ebp), %eax
-    subl $(TERMINAL_COLUMNS * 8 * 4), %eax
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    shll $5, %ecx
+    subl %ecx, %eax
     addl %eax, %edi
     decl %edx
     jnz terminal_clear_row
@@ -3462,9 +3465,13 @@ scroll_terminal:
     /* Preserve the logical surface independently of window position. */
     movl $TERMINAL_BUFFER_ADDRESS, %edi
     movl $(TERMINAL_BUFFER_ADDRESS + TERMINAL_COLUMNS), %esi
-    movl $(TERMINAL_COLUMNS * (TERMINAL_ROWS - 1)), %ecx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %eax
+    decl %eax
+    imull $TERMINAL_COLUMNS, %eax
+    movl %eax, %ecx
     rep movsb
-    movl $TERMINAL_COLUMNS, %ecx
+    movl $(TERMINAL_COLUMNS * TERMINAL_ROWS), %ecx
+    subl %eax, %ecx
     xorl %eax, %eax
     rep stosb
 
@@ -3479,23 +3486,34 @@ scroll_terminal:
     movl BOOT_PITCH(%ebp), %eax
     imull $16, %eax
     addl %eax, %esi
-    movl $((TERMINAL_ROWS - 1) * 16), %edx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %edx
+    decl %edx
+    shll $4, %edx
+    testl %edx, %edx
+    jz terminal_scroll_clear_prepare
 terminal_scroll_pixel_row:
-    movl $(TERMINAL_COLUMNS * 2), %ecx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    shll $1, %ecx
     rep movsl
     movl BOOT_PITCH(%ebp), %eax
-    subl $(TERMINAL_COLUMNS * 8 * 4), %eax
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    shll $5, %ecx
+    subl %ecx, %eax
     addl %eax, %edi
     addl %eax, %esi
     decl %edx
     jnz terminal_scroll_pixel_row
+terminal_scroll_clear_prepare:
     movl $16, %edx
 terminal_scroll_clear_row:
-    movl $(TERMINAL_COLUMNS * 2), %ecx
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    shll $1, %ecx
     xorl %eax, %eax
     rep stosl
     movl BOOT_PITCH(%ebp), %eax
-    subl $(TERMINAL_COLUMNS * 8 * 4), %eax
+    movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx
+    shll $5, %ecx
+    subl %ecx, %eax
     addl %eax, %edi
     decl %edx
     jnz terminal_scroll_clear_row
@@ -3615,6 +3633,10 @@ terminal_render_next:
     xorl %edx, %edx
     movl $TERMINAL_COLUMNS, %ecx
     divl %ecx
+    cmpl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %eax
+    jae terminal_render_advance
+    cmpl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %edx
+    jae terminal_render_advance
     shll $4, %eax
     addl (KERNEL_LOAD_ADDRESS + terminal_top - _start), %eax
     movl %eax, BOOT_CURSOR_Y(%ebp)
@@ -3757,7 +3779,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.27\n"
+version_message: .asciz "M.I.L.O VERSION 0.27.1\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4008,6 +4030,8 @@ terminal_top: .long 96
 terminal_last_line: .long 480
 terminal_bottom: .long 496
 terminal_right: .long 976
+terminal_visible_columns: .long TERMINAL_COLUMNS
+terminal_visible_rows: .long TERMINAL_ROWS
 terminal_render_index: .long 0
 terminal_saved_cursor_x: .long 0
 terminal_saved_cursor_y: .long 0

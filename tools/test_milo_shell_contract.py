@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.27 live native desktop."""
+"""Static and binary checks for the V0.27.1 resizable native desktop."""
 
 from pathlib import Path
 import re
@@ -72,12 +72,13 @@ def main():
         b"RIGHT CLICK // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.27",
-        b"ACTIVITY",
+        b"M.I.L.O V0.27.1",
+        b"EVENT RATE",
+        b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.27",
+        b"M.I.L.O VERSION 0.27.1",
     ):
         assert marker in kernel, marker
 
@@ -127,15 +128,15 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $904, %eax\n    movl $708, %edx",
+        "movl $888, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 904 + len("M.I.L.O V0.27") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.27.1") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Four independent native application windows retain focus, stacking,
-    # movement, controls, persistent terminal state, and real file operations.
+    # movement, bounded resizing, controls, terminal state, and file operations.
     for fragment in (
         ".equ WM_FLAG_VISIBLE, 1",
         ".equ WM_FLAG_MINIMIZED, 2",
@@ -153,6 +154,19 @@ def main():
         "movl $1024, (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4)",
         "movl $WM_TASKBAR_Y, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
         "wm_xor_drag_outline:",
+        ".equ WM_RESIZE_GRIP, 20",
+        "wm_min_w: .long 720, 640, 560, 560",
+        "wm_min_h: .long 456, 360, 400, 320",
+        "wm_resize_window: .byte WM_NONE",
+        "wm_render_resize_grip:",
+        "wm_resize_drag:",
+        "wm_release_resize:",
+        "wm_preview_w: .long 0",
+        "wm_preview_h: .long 0",
+        "movl (KERNEL_LOAD_ADDRESS + wm_min_w - _start)(,%eax,4), %edx",
+        "movl (KERNEL_LOAD_ADDRESS + wm_min_h - _start)(,%eax,4), %edx",
+        "movl %ecx, (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4)",
+        "movl %ecx, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
         "call wm_reposition_terminal_cursor",
         "call render_terminal_buffer",
         "subl (KERNEL_LOAD_ADDRESS + wm_x + WM_FILES * 4 - _start), %eax",
@@ -163,9 +177,8 @@ def main():
     ):
         require(shell_source, fragment)
 
-    # Desktop strings use a screen-clipped GUI emitter. They must never inherit
-    # terminal bounds or terminal capture, which previously wrapped the right
-    # overlay and window contents back to the left edge.
+    # Desktop strings and primitives use a client-aware clip rectangle. They
+    # never inherit Terminal wrapping or leak through a resized window frame.
     for fragment in (
         "gui_print_raw:",
         "cmpl $752, BOOT_CURSOR_Y(%ebp)",
@@ -173,6 +186,12 @@ def main():
         "call draw_character",
         "gui_decimal_next:",
         "call gui_print_raw",
+        "wm_enable_client_clip:",
+        "gui_clip_enabled: .byte 0",
+        "gui_clip_left: .long 0",
+        "gui_clip_right: .long 1024",
+        "cmpl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %edi",
+        "gui_plot_pixel_complete:",
     ):
         require(shell_source, fragment)
     gui_text = shell_source[
@@ -199,7 +218,10 @@ def main():
         "gui_type_file: .asciz \"FILE\"",
         "addl $192, %eax",
         "subl $192, %eax",
-        "cmpl $432, %edx",
+        "gui_prepare_file_layout:",
+        "gui_file_row_capacity: .long GUI_FILE_ROWS",
+        "cmpl (KERNEL_LOAD_ADDRESS + gui_file_status_y - _start), %edx",
+        "addl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %eax",
         "call gui_copy_render_name",
         "gui_render_name: .space 13",
         "call gui_draw_classic_button",
@@ -227,6 +249,11 @@ def main():
         "gui_overlay_cpu_mode: .asciz \"I386 // POLL\"",
         "system_event_count: .long 0",
         "wm_render_activity_graph:",
+        ".equ WM_ACTIVITY_GRAPH_MAX, 120",
+        "cmpl $WM_ACTIVITY_GRAPH_MAX, %eax",
+        "imull $3, %eax\n    shrl $3, %eax",
+        "gui_overlay_activity: .asciz \"EVENT RATE\"",
+        "gui_overlay_graph_scale: .asciz \"0..120+ EV/S\"",
         "activity_history: .space WM_ACTIVITY_SAMPLES",
         "wm_sample_activity:",
         "wm_count_application_states:",
@@ -251,10 +278,23 @@ def main():
         "testb $0x04, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)",
         "testb $0x02, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)",
         "cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)",
+        "cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)",
         "call wm_render_live_update",
     ):
         require(kernel_source if fragment.startswith("call initialize_mouse") or
                 fragment.startswith("keyboard_wait:") else shell_source, fragment)
+
+    # Terminal rows and columns follow the resized client while retaining the
+    # fixed 100x25 logical backing store and clipping hidden cells on repaint.
+    for fragment in (
+        "terminal_visible_columns: .long TERMINAL_COLUMNS",
+        "terminal_visible_rows: .long TERMINAL_ROWS",
+        "movl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %ecx",
+        "movl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %edx",
+        "cmpl (KERNEL_LOAD_ADDRESS + terminal_visible_rows - _start), %eax",
+        "cmpl (KERNEL_LOAD_ADDRESS + terminal_visible_columns - _start), %edx",
+    ):
+        require(kernel_source, fragment)
 
     # Each compact menu row maps to one independent application.
     for boundary, target in (
@@ -310,8 +350,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.27 desktop contract: %d-byte kernel, RTC taskbar, activity "
-        "overlay, FileHound, packet-stable cursor, four windows OK"
+        "M.I.L.O V0.27.1 desktop contract: %d-byte kernel, held splash, RTC "
+        "taskbar, scaled event graph, clipped resize, FileHound, terminal OK"
         % len(kernel)
     )
 
