@@ -27,20 +27,6 @@ jobs:
           echo "After cleanup:"
           df -h /
 
-      - name: Patch checksum verifier
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('surface-build/build-surface-xubuntu.sh')
-          s = p.read_text()
-          old = 'grep " ${BASE_ISO}$" SHA256SUMS | sha256sum -c -'
-          new = '''grep "${BASE_ISO}$" SHA256SUMS | sed 's/ \\*/  /' | sha256sum -c -'''
-          if old not in s:
-              raise SystemExit('checksum line not found')
-          p.write_text(s.replace(old, new))
-          PY
-
       - name: Build Surface Pro 4 Xubuntu ISO
         shell: bash
         env:
@@ -53,11 +39,12 @@ jobs:
       - name: Upload ready-to-flash ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash
+          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v2
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
             xubuntu-24.04.4-surface-pro-4-amd64.iso.boot-report.txt
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
