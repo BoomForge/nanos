@@ -1,4 +1,4 @@
-name: Surface Xubuntu ISO build
+name: Surface Xubuntu Autoinstall ISO
 
 on:
   push:
@@ -7,11 +7,12 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
       - name: Check out build branch
@@ -20,159 +21,169 @@ jobs:
       - name: Free runner disk space
         shell: bash
         run: |
-          echo "Before cleanup:"
           df -h /
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
           sudo docker system prune -af || true
-          echo "After cleanup:"
           df -h /
 
-      - name: Patch remaster for robust Surface live USB boot
+      - name: Install ISO tools
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('surface-build/build-surface-xubuntu.sh')
-          s = p.read_text()
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso python3-yaml
 
-          # Force the drivers required to see a DD-written live USB on the
-          # Surface Pro 4 into the Surface-kernel initrd whenever they are
-          # modular. If a driver is built into the kernel, mkinitramfs simply
-          # has no separate .ko file to copy, which is also valid.
-          initrd_marker = 'log "Building a Surface-kernel initrd WITH Ubuntu casper"'
-          initrd_inject = r'''log "Forcing Surface live-USB storage/filesystem drivers into initrd"
-          sudo tee -a "$FULL_MERGED/etc/initramfs-tools/modules" >/dev/null <<'MODULES'
-          xhci_pci
-          xhci_hcd
-          usb_storage
-          uas
-          sd_mod
-          squashfs
-          loop
-          isofs
-          MODULES
-
-          '''
-          if initrd_marker not in s:
-              raise SystemExit('Could not find initrd build marker in remaster script')
-          s = s.replace(initrd_marker, initrd_inject + initrd_marker, 1)
-
-          # Validate each critical live-media driver correctly: it may either
-          # be built directly into the Surface kernel or exist as a module in
-          # the generated initrd. Reject only if neither is true.
-          validation_marker = 'log "Adding Surface diagnostics to the live desktop"'
-          validation_inject = r'''log "Validating critical live-USB support in Surface initrd"
-          INITRD_LIST="$WORKDIR/surface-initrd-files.txt"
-          lsinitramfs "$LIVE_INITRD" > "$INITRD_LIST"
-
-          check_driver() {
-            local mod="$1"
-            local module_file
-            module_file="$(sudo chroot "$FULL_MERGED" modinfo -k "$SURFACE_VER" -F filename "$mod" 2>/dev/null || true)"
-
-            if [[ "$module_file" == "(builtin)" ]]; then
-              echo "  OK: $mod is built into $SURFACE_VER"
-              return 0
-            fi
-
-            if [[ -n "$module_file" ]]; then
-              local base
-              base="$(basename "$module_file")"
-              if grep -qF "$base" "$INITRD_LIST"; then
-                echo "  OK: $mod present in initrd as $base"
-                return 0
-              fi
-            fi
-
-            die "Surface live initrd lacks required driver: $mod"
-          }
-
-          for mod in xhci_pci xhci_hcd usb_storage uas sd_mod squashfs loop isofs; do
-            check_driver "$mod"
-          done
-
-          '''
-          if validation_marker not in s:
-              raise SystemExit('Could not find initrd validation marker in remaster script')
-          s = s.replace(validation_marker, validation_inject + validation_marker, 1)
-
-          # The remastered initrd does not share the stock image's embedded
-          # casper UUID. Add ignore_uuid to every GRUB linux/vmlinuz line,
-          # regardless of the exact argument layout used by Xubuntu 24.04.4.
-          rebuild_marker = 'log "Rebuilding bootable BIOS/UEFI ISO"'
-          grub_inject = r'''log "Allowing remastered casper initrd to accept the live USB medium"
-          for cfg in "$ISO/boot/grub/grub.cfg" "$ISO/boot/grub/loopback.cfg"; do
-            [[ -f "$cfg" ]] || continue
-            tmp="${cfg}.surface"
-            while IFS= read -r line || [[ -n "$line" ]]; do
-              if [[ "$line" =~ ^[[:space:]]*linux ]] && [[ "$line" == *vmlinuz* ]] && [[ "$line" != *ignore_uuid* ]]; then
-                if [[ "$line" == *" ---"* ]]; then
-                  line="${line/ ---/ ignore_uuid ---}"
-                else
-                  line="$line ignore_uuid"
-                fi
-              fi
-              printf '%s\n' "$line"
-            done < "$cfg" > "$tmp"
-            mv "$tmp" "$cfg"
-          done
-          grep -RqsE '^[[:space:]]*linux.*vmlinuz.*ignore_uuid' "$ISO/boot/grub" \
-            || die "Failed to add ignore_uuid to GRUB live boot lines"
-
-          '''
-          if rebuild_marker not in s:
-              raise SystemExit('Could not find ISO rebuild marker in remaster script')
-          s = s.replace(rebuild_marker, grub_inject + rebuild_marker, 1)
-
-          # Preserve the stock Xubuntu ISO volume ID because casper uses live
-          # media identity during discovery. The first custom builds changed it.
-          s = s.replace(' -update_r "$ISO" / -boot_image any replay -volid XUBUNTU_SURFACE -commit >/dev/null',
-                        ' -update_r "$ISO" / -boot_image any replay -commit >/dev/null')
-          p.write_text(s)
-          PY
-
-      - name: Build and validate Surface Pro 4 Xubuntu ISO
-        shell: bash
-        env:
-          SURFACE_BUILD_WORKDIR: ${{ runner.temp }}/surface-xubuntu-work
-        run: |
-          chmod +x surface-build/build-surface-xubuntu.sh
-          set +e
-          ./surface-build/build-surface-xubuntu.sh
-          rc=$?
-          set -e
-
-          ISO=xubuntu-24.04.4-surface-pro-4-amd64.iso
-          SHA="$ISO.sha256"
-          BOOT="$ISO.boot-report.txt"
-          INITRD="$ISO.initrd-report.txt"
-
-          if [[ $rc -ne 0 ]]; then
-            if [[ $rc -eq 32 && -s "$ISO" && -s "$SHA" && -s "$BOOT" && -s "$INITRD" ]]; then
-              echo "Ignoring harmless post-build cleanup exit code 32."
-            else
-              echo "Build failed with exit code $rc"
-              exit "$rc"
-            fi
-          fi
-
-          grep -q 'scripts/casper' "$INITRD"
-          grep -q 'lib/modules/6.19.8-surface-3/' "$INITRD"
-          grep -q 'UEFI' "$BOOT"
-          grep -q 'BIOS' "$BOOT"
-          sha256sum -c "$SHA"
-          ls -lh "$ISO"
-          df -h /
-
-      - name: Upload ready-to-flash ISO
-        uses: actions/upload-artifact@v4
+      - name: Download validated Surface live ISO v5
+        uses: actions/download-artifact@v4
         with:
           name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v5
+          path: base-artifact
+          github-token: ${{ github.token }}
+          repository: BoomForge/nanos
+          run-id: 33384979529
+
+      - name: Verify validated base ISO
+        shell: bash
+        run: |
+          cd base-artifact
+          sha256sum -c xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
+          grep -q 'scripts/casper' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
+          grep -q 'lib/modules/6.19.8-surface-3/' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
+
+      - name: Add bootloader autoinstall mode
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          BASE="$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso"
+          OUT="$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso"
+          WORK="$RUNNER_TEMP/surface-autoinstall-patch"
+          PATCH="$WORK/patch"
+          VERIFY="$WORK/verify"
+
+          rm -rf "$WORK" "$OUT"
+          mkdir -p "$PATCH/boot/grub" "$VERIFY"
+
+          # Only patch the already-validated v5 image. The Surface kernel,
+          # casper initrd, IPTS stack and live USB fixes remain byte-for-byte
+          # unchanged.
+          xorriso -osirrox on -indev "$BASE" \
+            -extract /boot/grub/grub.cfg "$PATCH/boot/grub/grub.cfg" \
+            -extract /md5sum.txt "$WORK/md5sum.txt" >/dev/null 2>&1
+
+          cat > "$PATCH/autoinstall.yaml" <<'AUTOINSTALL'
+          autoinstall:
+            version: 1
+            interactive-sections: []
+            refresh-installer:
+              update: false
+            locale: en_AU.UTF-8
+            keyboard:
+              layout: us
+              variant: ""
+            timezone: Australia/Hobart
+            source:
+              id: xubuntu-desktop
+              search_drivers: false
+            apt:
+              geoip: false
+              fallback: offline-install
+            identity:
+              realname: Surface User
+              hostname: surface-pro4
+              username: surface
+              password: "$6$SurfaceTemp$naVbdsS6fDapK4OAKJJhcg6QrKFEQNjNgZrB2K5aqKfSe10mfbOqjWU17HEPJaaA8kyU5vXBjalE1IDOYaM991"
+            storage:
+              layout:
+                name: direct
+                match:
+                  size: largest
+            ssh:
+              install-server: false
+            drivers:
+              install: false
+            oem:
+              install: false
+            shutdown: reboot
+            late-commands:
+              - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface
+              - curtin in-target --target=/target -- update-grub
+          AUTOINSTALL
+
+          # Keep normal Xubuntu boot entries intact. The destructive option is
+          # deliberately appended and is never made the default.
+          cat >> "$PATCH/boot/grub/grub.cfg" <<'GRUB'
+
+          menuentry 'INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE' {
+              set gfxpayload=keep
+              linux /casper/vmlinuz boot=casper autoinstall ignore_uuid console=tty1 ---
+              initrd /casper/initrd
+          }
+          GRUB
+
+          # Refresh md5 entries for the two changed/added files without
+          # touching the casper SHA256SUMS (no casper payload changed here).
+          cp "$WORK/md5sum.txt" "$PATCH/md5sum.txt"
+          sed -i '\#  \./boot/grub/grub.cfg$#d; \#  \./autoinstall.yaml$#d' "$PATCH/md5sum.txt"
+          (
+            cd "$PATCH"
+            md5sum ./boot/grub/grub.cfg ./autoinstall.yaml
+          ) >> "$PATCH/md5sum.txt"
+
+          python3 - <<'PY'
+          import yaml
+          from pathlib import Path
+          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/autoinstall.yaml")
+          data = yaml.safe_load(p.read_text())
+          a = data["autoinstall"]
+          assert a["version"] == 1
+          assert a["source"]["id"] == "xubuntu-desktop"
+          assert a["storage"]["layout"]["name"] == "direct"
+          assert a["storage"]["layout"]["match"]["size"] == "largest"
+          assert a["identity"]["username"] == "surface"
+          PY
+
+          grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$PATCH/boot/grub/grub.cfg"
+          grep -q "autoinstall ignore_uuid" "$PATCH/boot/grub/grub.cfg"
+
+          xorriso -indev "$BASE" -outdev "$OUT" \
+            -update_r "$PATCH" / \
+            -boot_image any replay -commit >/dev/null
+
+          # Verify the actual finished ISO, not only the patch files.
+          xorriso -osirrox on -indev "$OUT" \
+            -extract /autoinstall.yaml "$VERIFY/autoinstall.yaml" \
+            -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" >/dev/null 2>&1
+          grep -q '^autoinstall:' "$VERIFY/autoinstall.yaml"
+          grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$VERIFY/grub.cfg"
+          grep -q "autoinstall ignore_uuid" "$VERIFY/grub.cfg"
+
+          xorriso -indev "$OUT" -report_el_torito plain | tee "$OUT.boot-report.txt"
+          grep -q 'UEFI' "$OUT.boot-report.txt"
+          grep -q 'BIOS' "$OUT.boot-report.txt"
+          sha256sum "$OUT" | tee "$OUT.sha256"
+
+          cp "$PATCH/autoinstall.yaml" "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall.yaml"
+          cp "$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt" \
+             "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt"
+
+          echo
+          echo 'AUTOINSTALL SAFETY:'
+          echo '  - Normal live boot remains available.'
+          echo '  - Autoinstall is an explicit GRUB menu choice, not the default.'
+          echo '  - It erases the largest non-install-media disk using the direct layout.'
+          echo '  - Temporary login after install: surface / surface'
+          ls -lh "$OUT"
+
+      - name: Upload Surface autoinstall ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v1
           path: |
-            xubuntu-24.04.4-surface-pro-4-amd64.iso
-            xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
-            xubuntu-24.04.4-surface-pro-4-amd64.iso.boot-report.txt
-            xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
+            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso
+            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.sha256
+            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.boot-report.txt
+            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt
+            xubuntu-24.04.4-surface-pro-4-autoinstall.yaml
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
