@@ -27,6 +27,32 @@ jobs:
           echo "After cleanup:"
           df -h /
 
+      - name: Patch remaster for casper live-media UUID compatibility
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('surface-build/build-surface-xubuntu.sh')
+          s = p.read_text()
+
+          marker = 'log "Rebuilding bootable BIOS/UEFI ISO"'
+          inject = r'''log "Allowing remastered casper initrd to accept the live USB medium"
+          for cfg in "$ISO/boot/grub/grub.cfg" "$ISO/boot/grub/loopback.cfg"; do
+            [[ -f "$cfg" ]] || continue
+            sed -i -E 's/(boot=casper)([[:space:]])/\1 ignore_uuid\2/g' "$cfg"
+          done
+          grep -Rqs 'boot=casper ignore_uuid' "$ISO/boot/grub" \
+            || die "Failed to add ignore_uuid to casper boot arguments"
+
+          '''
+          if marker not in s:
+              raise SystemExit('Could not find ISO rebuild marker in remaster script')
+          s = s.replace(marker, inject + marker, 1)
+          s = s.replace(' -update_r "$ISO" / -boot_image any replay -volid XUBUNTU_SURFACE -commit >/dev/null',
+                        ' -update_r "$ISO" / -boot_image any replay -commit >/dev/null')
+          p.write_text(s)
+          PY
+
       - name: Build and validate Surface Pro 4 Xubuntu ISO
         shell: bash
         env:
@@ -43,11 +69,6 @@ jobs:
           BOOT="$ISO.boot-report.txt"
           INITRD="$ISO.initrd-report.txt"
 
-          # The remaster currently returns 32 from its EXIT cleanup after the
-          # ISO has already been completely written and validated. Accept only
-          # that exact cleanup return code, and only if every required output
-          # exists and the validation reports contain the expected live-boot
-          # and Surface-kernel markers.
           if [[ $rc -ne 0 ]]; then
             if [[ $rc -eq 32 && -s "$ISO" && -s "$SHA" && -s "$BOOT" && -s "$INITRD" ]]; then
               echo "Ignoring harmless post-build cleanup exit code 32."
@@ -68,7 +89,7 @@ jobs:
       - name: Upload ready-to-flash ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v2
+          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v3
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
