@@ -72,7 +72,9 @@ being proven in QEMU before a specific board or custom carrier is locked in.
 - A sparse native stacking desktop whose visual discipline and root-menu
   workflow are inspired by Fluxbox: a quiet root surface with a low-density
   system-status overlay, a compact pointer-positioned right-click application
-  menu, overlapping movable windows, visible focus, and title controls.
+  menu, overlapping movable windows, visible focus, title controls, and a
+  bottom taskbar reserved for genuinely minimized applications plus local
+  version/date/time state.
   Fluxbox and Conky are behavioral and visual references only; their code, X11,
   and Linux runtime are not dependencies.
 - A recognisable M.I.L.O system shell with the ring as the central system-state
@@ -131,8 +133,13 @@ windows. Runtime screenshots then exposed two genuine composition defects:
 desktop text inherited Terminal's wrap boundary and the file-name renderer
 bypassed moved-window translation. **V0.26.2** replaces that shared text path,
 audits the native layouts, and adapts Files into a recognisable native
-FileHound edition. The remaining apparent pointer-edge limit was identified as
-QEMU's relative mouse capture behaviour rather than a kernel coordinate defect.
+FileHound edition. **V0.27** keeps the sparse right-click workflow while adding
+a minimized-only taskbar, CMOS date/time, live measured activity history, and
+real application-state reporting. It also makes normal Stage 1 and Stage 2
+loading visually silent until the M.I.L.O splash is ready, then retains that
+splash until kernel and mouse initialization finish. The remaining apparent
+pointer-edge limit was identified as QEMU's relative mouse capture behaviour
+rather than a kernel coordinate defect.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -140,8 +147,8 @@ QEMU's relative mouse capture behaviour rather than a kernel coordinate defect.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.26.2 candidate kernel is 25,991 bytes; 32 KiB is reserved for
-  controlled growth, leaving 6,777 bytes in the current kernel region.
+- The V0.27 candidate kernel is 27,955 bytes; 32 KiB is reserved for controlled
+  growth, leaving 4,813 bytes in the current kernel region.
 - The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
@@ -249,11 +256,27 @@ contract rather than compensating with per-screen coordinate offsets.
 - Maintain a separate render-name buffer so repainting the browser cannot
   corrupt the source filename of a pending copy, rename, or delete operation.
 
-### V0.27 — sound and richer system state
+### V0.27 — live desktop state and minimized workflow
 
-- Small PC-speaker or similarly minimal sound cues.
-- Ring states for idle, activity, success, warning, and M.I.L.O interaction.
-- No continuous audio engine unless later hardware makes it worthwhile.
+- Silence normal text-mode loader chatter so the first OS-controlled visual is
+  the M.I.L.O splash; keep it present until kernel, RTC, terminal, window, FAT12,
+  and mouse initialization are complete.
+- Add a permanent 64-pixel taskbar that creates buttons only for genuinely open
+  and minimized applications. Clicking a task button restores, focuses, and
+  raises that application.
+- Reserve the taskbar's right edge for two right-aligned lines: `M.I.L.O V0.27`
+  above Australian `DD/MM/YYYY` and 24-hour `HH:MM` time.
+- Read the PC-compatible CMOS RTC directly, including BCD/binary and
+  12-hour/24-hour normalization. Remain offline and timezone-database-free;
+  QEMU uses `-rtc base=localtime`.
+- Extend the native Conky-style root overlay with measured input activity per
+  RTC second, a rolling 20-sample graph, open/minimized counts, and real state
+  for System, FileHound, Traits, and Terminal.
+- Continue to label CPU as `I386 // POLL`. Event activity is useful and real;
+  CPU percentage would be fabricated until timer interrupts, scheduler/idle
+  accounting, and a non-busy wait path exist.
+- Constrain maximize, dragging, and root-menu placement to the workspace above
+  the taskbar while preserving every verified storage and terminal path.
 
 ### V0.28 — graphical document workspace
 
@@ -270,6 +293,12 @@ contract rather than compensating with per-screen coordinate offsets.
 
 - Pencil, eraser, palette selection, simple fills, and verified saving.
 - Operate within strict dimensions and memory limits suitable for the appliance.
+
+### V0.31 — sound and richer M.I.L.O state
+
+- Small PC-speaker or similarly minimal sound cues.
+- Ring states for idle, activity, success, warning, and M.I.L.O interaction.
+- No continuous audio engine unless later hardware makes it worthwhile.
 
 ### Hardware and V1.0
 
@@ -334,3 +363,4 @@ journal records intent and rationale.
 | `add V0.26 native root-menu desktop` | Removed the permanent dashboard chrome, hid all applications at startup, added a compact edge-clamped right-click root menu, expanded maximize and drag bounds to the whole framebuffer, and retained the four native stacking application windows and their real operations. | Match Fluxbox's sparse visual language and menu-led usability without importing Fluxbox, X11, Linux, POSIX, or an external window system. |
 | `polish V0.26.1 native desktop` | Moved cursor redraw to complete PS/2 packets, added root-menu hover and focus accents, and introduced a native right-side system overlay with measured RAM, FAT12 capacity, file, event, video, network, version, CPU-mode, and honest temperature-availability data. | Remove the runtime cursor flicker and give the accepted Fluxbox-like workflow the useful, coherent finish requested without adding fake telemetry or external desktop code. |
 | `fix V0.26.2 UI and add native FileHound` | Separated GUI text and number drawing from Terminal wrapping, brought every browser row into the translated window coordinate contract, and rebuilt Files as a native single-pane FileHound edition with a location strip, aligned Name/Type/Size columns, category accents, paging, item status, classic controls, and isolated repaint storage. | Correct the runtime layout failures at their shared rendering sources and make the primary document workflow polished and recognisably FileHound without importing Go, Win32, Linux, or nonfunctional controls. |
+| `add V0.27 live desktop status` | Silenced normal loader chatter until the persistent boot splash, added a CMOS-backed Australian clock, a right-aligned version/date/time block, a minimized-only restore taskbar, taskbar-aware workspace bounds, real application-state reporting, a rolling event-activity graph with one-second live recomposition, and a primary-branch M.I.L.O build/readme contract. | Make the native Fluxbox-like desktop more familiar and useful while keeping telemetry honest, the root workflow sparse, boot unmistakably M.I.L.O, and the implementation independent of Linux, Conky, an RTC service, a scheduler, or fake CPU statistics. |

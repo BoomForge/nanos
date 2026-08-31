@@ -64,20 +64,9 @@ _start:
     cld
 
     movb %dl, (STAGE2_LOAD_ADDRESS + boot_drive - _start)
-    movw $(STAGE2_LOAD_ADDRESS + stage2_message - _start), %si
-    call print_string
 
     call detect_memory
     jc memory_error
-
-    movw $(STAGE2_LOAD_ADDRESS + memory_message - _start), %si
-    call print_string
-
-    movl (STAGE2_LOAD_ADDRESS + usable_bytes - _start), %eax
-    shrl $20, %eax
-    call print_u32
-    movw $(STAGE2_LOAD_ADDRESS + mib_message - _start), %si
-    call print_string
 
     call load_kernel
     jc kernel_load_error
@@ -737,15 +726,6 @@ bios_write_offset:
 .align 4
 bios_saved_esp:
     .long 0
-
-stage2_message:
-    .asciz "M.I.L.O stage 2 online\r\n"
-
-memory_message:
-    .asciz "Usable memory: "
-
-mib_message:
-    .asciz " MiB\r\n"
 
 memory_error_message:
     .asciz "M.I.L.O memory detection failed\r\n"

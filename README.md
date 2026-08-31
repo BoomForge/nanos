@@ -1,70 +1,72 @@
-# NanOS
+# M.I.L.O
 
-NanOS is the start of a tiny graphical x86 operating system in modular C89.
-The current tree builds a 32-bit Multiboot2 kernel, boots it with GRUB, writes
-diagnostics to serial/VGA text, and draws an initial framebuffer desktop.
+M.I.L.O is an extremely small offline graphical x86 operating system with its
+own BIOS boot sector, two-stage loader, protected-mode assembly kernel, FAT12
+storage, stacking desktop, text tools, and deterministic M.I.L.O interaction.
+It does not use Linux, GRUB, an LLM, or an external desktop runtime.
 
-The design goal is closer to MenuetOS' spirit than its implementation: compact,
-graphical, fast to boot, and useful. It is not a FASM port and should not copy
-MenuetOS internals.
+The `M.I.L.O` branch is the primary project. The inherited modular C89 NanOS
+work remains in the repository for upstream development and general reusable
+improvements; it is not the M.I.L.O runtime.
+
+## Current release
+
+V0.27 provides:
+
+- silent normal loading followed by the native ASCII M.I.L.O splash;
+- a Fluxbox-inspired right-click root menu and four movable application windows;
+- a minimized-only taskbar with click-to-restore buttons;
+- CMOS-backed local date/time and right-aligned version status;
+- a native Conky-inspired overlay with a real event-activity graph,
+  application states, RAM, FAT12 capacity, file/event counts, video, network,
+  and honest unsupported-sensor reporting;
+- native FileHound-inspired FAT12 browsing and real open/edit/copy/rename/delete;
+- persistent multi-cluster text editing and a 30-entry command history; and
+- Nyx-derived deterministic pattern and trait learning without phrase storage.
+
+The complete scope, architectural boundaries, roadmap, and commit rationale
+are maintained in [`direction.md`](direction.md).
 
 ## Requirements
 
-- `gcc`
-- GNU `ld`
-- `grub-mkstandalone`
-- `xorriso`
-- `qemu-system-i386` for the default run target
-- Optional: `bochs` for CPU-level emulator debugging
+- `gcc` with 32-bit assembly support
+- GNU `objcopy` and `nm`
+- Python 3
+- QEMU i386 for runtime testing
 
-## Build
+## Build and verify M.I.L.O
 
 ```sh
-make
-make verify
-make iso
+make milo-floppy
+make verify-milo-boot
 ```
 
-## Run
-
-```sh
-make run
-```
-
-This boots `build/nanos-i386.iso` in QEMU and connects COM1 to the terminal.
-The serial output should end with:
+The build produces:
 
 ```text
-graphical desktop initialized
-memory total ...
-pmm test page ...
-paging enabled
-heap start ...
-heap free test ok
-interrupts enabled
-halt loop entered
-timer ticking
+build/M.I.L.O-floppy-V0.27.img
 ```
 
-The graphical window now has a tiny framebuffer console. Click/focus QEMU and
-type; PS/2 keyboard input should echo into that console.
-Moving the mouse in QEMU should move the software cursor.
+## Run on Windows
 
-Bochs support is prepared but depends on Bochs being installed:
-
-```sh
-make bochs
+```powershell
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.img"
+& "C:\Program Files\qemu\qemu-system-i386.exe" `
+    -m 128M `
+    -rtc base=localtime `
+    -boot a `
+    -drive "if=floppy,format=raw,file=$img"
 ```
 
-## Current architecture
+`-rtc base=localtime` supplies the offline CMOS clock with the host's local
+date and time. M.I.L.O contains no network time client or timezone database.
 
-- `boot/`: Multiboot2 entry code and linker scripts.
-- `kernel/`: C89 kernel code that should remain mostly architecture neutral.
-- `arch/x86/`: 32-bit x86 port I/O, serial, and VGA text support.
-- `grub/`: bootloader configuration.
-- `docs/`: roadmap and design notes.
+## Interaction
 
-## Status
+- Right-click the root desktop to open applications.
+- Minimize a window to place it on the taskbar; click its button to restore it.
+- Typing automatically opens or restores Terminal.
+- File-changing operations remain explicit and guarded.
 
-`ARCH=i386` is bootable. `ARCH=x86_64` is intentionally reserved for the next
-stage after memory management and interrupt ownership are in place.
+See [`docs/MILO_SHELL.md`](docs/MILO_SHELL.md) for the full desktop and testing
+contract.

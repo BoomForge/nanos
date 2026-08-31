@@ -18,7 +18,7 @@ _start:
     nop
 
     /* FAT12 BIOS parameter block; loader sectors are reserved from the FAT. */
-    .ascii "MILO26.2"
+    .ascii "MILO0.27"
     .word 512
     .byte 1
     .word 82
@@ -49,10 +49,16 @@ boot_code:
     cld
 
     movb %dl, (0x7c00 + boot_drive - _start)
-    movb $3, (0x7c00 + retries_remaining - _start)
 
-    movw $(0x7c00 + loading_message - _start), %si
-    call print_string
+    /* Clear firmware text immediately and stay visually silent until Stage 2
+     * can present the native M.I.L.O splash. Firmware errors still print. */
+    movw $0x0003, %ax
+    int $0x10
+    movw $0x0100, %ax
+    movw $0x2000, %cx
+    int $0x10
+
+    movb $3, (0x7c00 + retries_remaining - _start)
 
 read_stage2:
     xorw %ax, %ax
@@ -108,9 +114,6 @@ boot_drive:
 
 retries_remaining:
     .byte 0
-
-loading_message:
-    .asciz "M.I.L.O stage 1 online\r\nLoading stage 2...\r\n"
 
 error_message:
     .asciz "M.I.L.O disk read error\r\n"

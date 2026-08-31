@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.26.2 polished native desktop."""
+"""Static and binary checks for the V0.27 live native desktop."""
 
 from pathlib import Path
 import re
@@ -70,17 +70,26 @@ def main():
         b"I386 // POLL",
         b"1024X768X32",
         b"RIGHT CLICK // APPS",
-        b"M.I.L.O VERSION 0.26.2",
+        b"TASKS // MINIMIZED",
+        b"NO MINIMIZED APPLICATIONS",
+        b"M.I.L.O V0.27",
+        b"ACTIVITY",
+        b"EV/S",
+        b"ACTIVE",
+        b"MINIMIZED",
+        b"M.I.L.O VERSION 0.27",
     ):
         assert marker in kernel, marker
 
-    # Startup is a root desktop with a lightweight system overlay. No permanent
-    # launcher, taskbar, dashboard application, or ordinary window is visible.
+    # Startup is a root desktop with a lightweight system overlay and a sparse
+    # taskbar. No launcher, dashboard application, or ordinary window is open.
     for fragment in (
         ".equ WM_COUNT, 4",
         ".equ WM_ROOT_MENU_WIDTH, 232",
         ".equ WM_ROOT_MENU_HEIGHT, 148",
         ".equ WM_ROOT_MENU_ROW, 28",
+        ".equ WM_TASKBAR_Y, 704",
+        ".equ WM_TASKBAR_HEIGHT, 64",
         "movl $1024, %ecx\n    movl $768, %edx",
         "wm_flags: .byte 0, 0, 0, 0",
         "wm_active: .byte WM_NONE",
@@ -92,21 +101,38 @@ def main():
         "gui_handle_root_click:",
         "movb $1, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)",
         "cmpl $(1024 - WM_ROOT_MENU_WIDTH), %eax",
-        "cmpl $(768 - WM_ROOT_MENU_HEIGHT), %eax",
+        "cmpl $(WM_TASKBAR_Y - WM_ROOT_MENU_HEIGHT), %eax",
         "gui_handle_pointer_motion:",
         "wm_menu_hover: .byte WM_NONE",
         "cmpl %edi, %eax\n    jne gui_menu_item_idle",
     ):
         require(shell_source, fragment)
     for obsolete in (
-        "WM_TASKBAR_Y",
-        "wm_render_taskbar",
         "wm_render_desktop_icons",
         "wm_render_start_menu",
         "gui_taskbar_status",
         "gui_milo_button_label",
     ):
         assert obsolete not in shell_source, obsolete
+
+    # Only minimized windows become task buttons. Their slot mapping is built
+    # from real window flags and a click restores the selected window.
+    for fragment in (
+        "wm_render_taskbar:",
+        "testb $WM_FLAG_VISIBLE, %al",
+        "testb $WM_FLAG_MINIMIZED, %al",
+        "wm_taskbar_slots: .space WM_COUNT",
+        "cmpl $WM_TASK_BUTTON_WIDTH, %edx",
+        "movzbl (KERNEL_LOAD_ADDRESS + wm_taskbar_slots - _start)(,%eax), %eax",
+        "jmp wm_open_selected",
+        "call wm_render_taskbar",
+        "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
+        "movl $904, %eax\n    movl $708, %edx",
+        "movl $872, %eax\n    movl $740, %edx",
+    ):
+        require(shell_source, fragment)
+    assert 904 + len("M.I.L.O V0.27") * 8 == 1008
+    assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Four independent native application windows retain focus, stacking,
     # movement, controls, persistent terminal state, and real file operations.
@@ -125,7 +151,7 @@ def main():
         "wm_toggle_maximize:",
         "movl $0, (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4)",
         "movl $1024, (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4)",
-        "movl $768, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
+        "movl $WM_TASKBAR_Y, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
         "wm_xor_drag_outline:",
         "call wm_reposition_terminal_cursor",
         "call render_terminal_buffer",
@@ -188,7 +214,8 @@ def main():
     assert "call print_directory_name" not in browser
 
     # The Conky-like root overlay reports real native state. Storage is counted
-    # from FAT12 and unsupported thermal data is stated as unavailable.
+    # from FAT12, activity is sampled from real input events, applications use
+    # their true window flags, and unsupported thermal data remains unavailable.
     for fragment in (
         "wm_render_system_overlay:",
         "gui_overlay_collect:",
@@ -199,8 +226,35 @@ def main():
         "gui_overlay_unavailable: .asciz \"N/A\"",
         "gui_overlay_cpu_mode: .asciz \"I386 // POLL\"",
         "system_event_count: .long 0",
+        "wm_render_activity_graph:",
+        "activity_history: .space WM_ACTIVITY_SAMPLES",
+        "wm_sample_activity:",
+        "wm_count_application_states:",
+        "wm_render_application_state:",
+        "gui_overlay_app_minimized: .asciz \"MINIMIZED\"",
     ):
         require(shell_source, fragment)
+
+    # Time is read from the CMOS RTC, normalized from BCD/12-hour firmware when
+    # required, and refreshed from the existing polling loop once per second.
+    for fragment in (
+        "call initialize_mouse\n    call render_shell",
+        "keyboard_wait:\n    call rtc_poll_update",
+        "rtc_initialize:",
+        "rtc_poll_update:",
+        "rtc_read_snapshot:",
+        "rtc_bcd_to_binary:",
+        "rtc_format_display:",
+        "outb %al, $0x70",
+        "inb $0x71, %al",
+        "testb $0x80, %al",
+        "testb $0x04, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)",
+        "testb $0x02, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)",
+        "cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)",
+        "call wm_render_live_update",
+    ):
+        require(kernel_source if fragment.startswith("call initialize_mouse") or
+                fragment.startswith("keyboard_wait:") else shell_source, fragment)
 
     # Each compact menu row maps to one independent application.
     for boundary, target in (
@@ -256,8 +310,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O polished desktop contract: %d-byte kernel, isolated GUI text, "
-        "native status overlay, FileHound, packet-stable cursor, four windows OK"
+        "M.I.L.O V0.27 desktop contract: %d-byte kernel, RTC taskbar, activity "
+        "overlay, FileHound, packet-stable cursor, four windows OK"
         % len(kernel)
     )
 

@@ -1,11 +1,12 @@
 # M.I.L.O native root-menu desktop
 
-V0.26.2 refines the accepted V0.26 native root desktop. Its interaction model
+V0.27 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
-stacking windows. A slim right-side status readout borrows Conky's useful
-root-level information density without importing its implementation. The
-FileHound application is a native edition adapted to M.I.L.O's FAT12 root.
+stacking windows. A sparse minimized-application taskbar now anchors the bottom
+edge. A live right-side status readout borrows Conky's useful root-level
+information density without importing its implementation. The FileHound
+application remains a native edition adapted to M.I.L.O's FAT12 root.
 
 Fluxbox, Conky, and FileHound are visual and usability references only. M.I.L.O
 does not contain or link their code and does not add Win32, Go, X11, POSIX,
@@ -14,18 +15,35 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 
 ## Root desktop
 
-- Startup renders the dark M.I.L.O root surface, pointer, and a narrow status
-  overlay on the right. All ordinary applications remain hidden.
-- No dashboard, permanent application panel, desktop launch strip, header, or
-  taskbar occupies the workspace.
+- Stage 1 clears the firmware text and remains visually silent during normal
+  loading. Stage 2 displays the M.I.L.O splash and initialization status; the
+  kernel keeps it visible until RTC, terminal, window, filesystem, and mouse
+  initialization are complete.
+- Startup then renders the dark M.I.L.O root surface, pointer, right-side
+  status overlay, and bottom taskbar. All ordinary applications remain hidden.
+- No dashboard, permanent launcher panel, desktop launch strip, or header
+  occupies the workspace.
 - A new right-button press opens `M.I.L.O APPLICATIONS` at the pointer.
-- Menu placement is clamped at the right and bottom framebuffer edges so the
+- Menu placement is clamped at the right edge and above the taskbar so the
   complete menu remains visible.
 - The compact menu opens System, FileHound, Traits, or Terminal.
 - Clicking an application entry opens or restores its independent window and
   closes the menu. Clicking elsewhere dismisses it.
 - Moving across menu entries changes the highlighted row only when a boundary
   is crossed, providing feedback without redrawing continuously.
+
+## Minimized-application taskbar
+
+- The 64-pixel bottom bar is permanently visible but intentionally sparse.
+- Only applications that are both open and minimized receive a task button.
+- Task buttons are built from the real window flags on every composition; no
+  duplicate application state is maintained.
+- Clicking a task button restores, focuses, and raises that application.
+- When no application is minimized, the bar explicitly says so rather than
+  displaying non-functional placeholders.
+- The right edge shows `M.I.L.O V0.27` above the CMOS date and time. Both lines
+  share the same right boundary.
+- The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
 ## Native status overlay
 
@@ -34,7 +52,11 @@ normal windows naturally cover it. It reports:
 
 - kernel version;
 - `I386 // POLL` CPU mode;
-- processed keyboard and complete mouse-packet event count;
+- live input-event rate and a rolling 20-second activity graph;
+- current state for System, FileHound, Traits, and Terminal (`ACTIVE`, `OPEN`,
+  `MINIMIZED`, or `CLOSED`);
+- open and minimized application counts;
+- total processed keyboard and complete mouse-packet event count;
 - BIOS-detected total usable RAM;
 - live FAT12 free and total capacity calculated from the real allocation table;
 - live root file count;
@@ -44,7 +66,13 @@ normal windows naturally cover it. It reports:
 
 The current kernel has no scheduler or idle-time sampling and intentionally
 does not claim a CPU-use percentage. Its input loop busy-polls, so a percentage
-would be misleading until timer accounting and an idle path exist.
+would be misleading until timer accounting and an idle path exist. The graph is
+therefore labelled `ACTIVITY` and plots measured events per RTC second.
+
+The clock reads the PC-compatible CMOS RTC directly. It handles BCD or binary
+fields and 12-hour or 24-hour firmware modes. QEMU should use
+`-rtc base=localtime`; M.I.L.O deliberately contains no timezone database or
+network time dependency.
 
 ## Native window model
 
@@ -53,11 +81,11 @@ would be misleading until timer accounting and an idle path exist.
 - Windows overlap and a four-entry z-order determines back-to-front rendering.
 - Clicking a visible window focuses and raises it.
 - Dragging a non-maximized titlebar shows a lightweight XOR outline; releasing
-  commits a position bounded to the full 1024-by-768 root desktop.
+  commits a position bounded to the 1024-by-704 workspace above the taskbar.
 - Each titlebar has minimize, maximize/restore, and close controls.
-- Maximize uses the full framebuffer because V0.26 reserves no taskbar or
-  global header area.
-- Closed or minimized applications are reopened from the right-click menu.
+- Maximize uses the full workspace above the taskbar.
+- Closed applications are reopened from the right-click menu. Minimized
+  applications can be restored from either the taskbar or root menu.
 
 Typing while Terminal is hidden or minimized restores and focuses it. This
 keeps an immediate keyboard recovery path without forcing a terminal-shaped
@@ -121,7 +149,7 @@ remains read-only assistance and cannot authorize a file mutation.
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.26.2 leaves the cursor visible while bytes one and two arrive, then
+input. V0.27 leaves the cursor visible while bytes one and two arrive, then
 erases, moves, and redraws it once when byte three completes the packet. This
 removes the former three-redraw movement flicker. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
@@ -145,16 +173,17 @@ make verify-milo-boot
 ```
 
 This audits the boot layout, routing fixtures, full-volume FAT12 contents,
-binary version markers, application-hidden startup, native status collection,
-GUI/Terminal text isolation, absence of launcher/taskbar chrome, root-menu
-geometry, hover and routing, four-window behavior, translated FileHound rows
-and controls, pending-action buffer isolation, drag dispatch, title actions,
-terminal surface isolation, complete-packet cursor redraw, PS/2 button
-handling, and cursor storage.
+binary version markers, application-hidden startup, CMOS RTC normalization,
+live activity sampling, honest native status collection, minimized-only task
+slots and restore routing, taskbar-aware menu/window bounds, GUI/Terminal text
+isolation, root-menu geometry, hover and routing, four-window behavior,
+translated FileHound rows and controls, pending-action buffer isolation, drag
+dispatch, title actions, terminal surface isolation, complete-packet cursor
+redraw, PS/2 button handling, and cursor storage.
 
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.26.2.img"
-& "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -boot a -drive "if=floppy,format=raw,file=$img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.img"
+& "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

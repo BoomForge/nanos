@@ -74,12 +74,13 @@ _start:
     call print_string
     call terminal_newline
     call print_prompt
-    call render_shell
     call initialize_mouse
+    call render_shell
 
 keyboard_poll:
     call draw_mouse_cursor
 keyboard_wait:
+    call rtc_poll_update
     inb $0x64, %al
     testb $0x01, %al
     jz keyboard_wait
@@ -3756,7 +3757,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.26.2\n"
+version_message: .asciz "M.I.L.O VERSION 0.27\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"

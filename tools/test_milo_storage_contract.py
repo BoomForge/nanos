@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the V0.26.2 boot layout and full-volume FAT12 test fixture."""
+"""Audit the V0.27 boot layout and full-volume FAT12 test fixture."""
 
 from pathlib import Path
 import struct
@@ -53,7 +53,10 @@ def main():
     files_dir = Path(sys.argv[2])
     kernel = Path(sys.argv[3]).read_bytes()
     assert len(image) == IMAGE_SIZE, len(image)
-    assert image[3:11] == b"MILO26.2", image[3:11]
+    assert image[3:11] == b"MILO0.27", image[3:11]
+    assert b"M.I.L.O stage 1 online" not in image
+    assert b"M.I.L.O stage 2 online" not in image
+    assert b"M.I.L.O SYSTEM INITIALISING..." in image
 
     bytes_per_sector = struct.unpack_from("<H", image, 11)[0]
     sectors_per_cluster = image[13]
@@ -69,7 +72,7 @@ def main():
     assert len(kernel) <= KERNEL_RESERVED_SECTORS * SECTOR_SIZE
     kernel_offset = KERNEL_START_SECTOR * SECTOR_SIZE
     assert image[kernel_offset:kernel_offset + len(kernel)] == kernel
-    assert b"M.I.L.O VERSION 0.26.2" in kernel
+    assert b"M.I.L.O VERSION 0.27" in kernel
 
     root_sectors = (root_entries * 32 + SECTOR_SIZE - 1) // SECTOR_SIZE
     fat1_sector = reserved

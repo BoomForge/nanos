@@ -29,6 +29,13 @@
 .equ WM_ROOT_MENU_WIDTH, 232
 .equ WM_ROOT_MENU_HEIGHT, 148
 .equ WM_ROOT_MENU_ROW, 28
+.equ WM_TASKBAR_Y, 704
+.equ WM_TASKBAR_HEIGHT, 64
+.equ WM_TASK_BUTTON_X, 16
+.equ WM_TASK_BUTTON_Y, 724
+.equ WM_TASK_BUTTON_WIDTH, 144
+.equ WM_TASK_BUTTON_STRIDE, 152
+.equ WM_ACTIVITY_SAMPLES, 20
 
 render_shell:
     call gui_save_terminal_state
@@ -46,6 +53,7 @@ render_shell:
     je wm_render_no_menu
     call wm_render_root_menu
 wm_render_no_menu:
+    call wm_render_taskbar
     call gui_restore_terminal_state
     cmpb $WM_TERMINAL, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     jne wm_render_shell_complete
@@ -66,6 +74,10 @@ wm_initialize:
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    movb $0xff, (KERNEL_LOAD_ADDRESS + rtc_last_second - _start)
+    movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + activity_previous_events - _start)
+    call rtc_initialize
     call wm_sync_terminal_bounds
     ret
 
@@ -87,6 +99,250 @@ wm_sync_terminal_bounds:
     movl %eax, (KERNEL_LOAD_ADDRESS + terminal_right - _start)
     ret
 
+/* Read the battery-backed CMOS clock without inventing a software timebase.
+ * QEMU should be launched with -rtc base=localtime so the RTC matches the
+ * host's Australian local time. Physical PCs normally expose their configured
+ * firmware time directly through the same registers. */
+rtc_initialize:
+    pushal
+    call rtc_read_snapshot
+    movb (KERNEL_LOAD_ADDRESS + rtc_second - _start), %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_last_second - _start)
+    call rtc_format_display
+    popal
+    ret
+
+/* Called from the existing polling loop. CMOS access is deliberately divided
+ * down; a complete redraw occurs only when the hardware second changes. */
+rtc_poll_update:
+    pushal
+    incl (KERNEL_LOAD_ADDRESS + rtc_poll_divider - _start)
+    testl $0x00003fff, (KERNEL_LOAD_ADDRESS + rtc_poll_divider - _start)
+    jnz rtc_poll_complete
+    call rtc_read_snapshot
+    movb (KERNEL_LOAD_ADDRESS + rtc_second - _start), %al
+    cmpb (KERNEL_LOAD_ADDRESS + rtc_last_second - _start), %al
+    je rtc_poll_complete
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_last_second - _start)
+    call rtc_format_display
+    call wm_sample_activity
+    /* The drag preview is an XOR outline over the last complete frame. A live
+     * repaint while it is present would consume that outline as background and
+     * leave artifacts when the pointer moves again. Keep sampling the real
+     * state, then repaint normally on the next second or drag release. */
+    cmpb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
+    jne rtc_poll_complete
+    call hide_mouse_cursor
+    call wm_render_live_update
+    call draw_mouse_cursor
+rtc_poll_complete:
+    popal
+    ret
+
+rtc_read_snapshot:
+    pushal
+rtc_snapshot_retry:
+    /* Register A bit 7 is set while the RTC is updating its fields. */
+    movb $0x8a, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    testb $0x80, %al
+    jnz rtc_snapshot_retry
+
+    movb $0x80, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_raw_second - _start)
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_second - _start)
+    movb $0x82, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_minute - _start)
+    movb $0x84, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+    movb $0x87, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_day - _start)
+    movb $0x88, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_month - _start)
+    movb $0x89, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_year - _start)
+    movb $0x8b, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)
+
+    /* Reject a snapshot that crossed a second boundary mid-read. */
+    movb $0x80, %al
+    outb %al, $0x70
+    inb $0x71, %al
+    cmpb (KERNEL_LOAD_ADDRESS + rtc_raw_second - _start), %al
+    jne rtc_snapshot_retry
+
+    /* Re-enable NMI after the protected CMOS transaction. */
+    movb $0x0d, %al
+    outb %al, $0x70
+
+    movb (KERNEL_LOAD_ADDRESS + rtc_hour - _start), %al
+    andb $0x80, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_pm_flag - _start)
+    andb $0x7f, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+
+    /* Register B bit 2 selects binary fields; otherwise convert BCD. */
+    testb $0x04, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)
+    jnz rtc_fields_binary
+    movb (KERNEL_LOAD_ADDRESS + rtc_second - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_second - _start)
+    movb (KERNEL_LOAD_ADDRESS + rtc_minute - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_minute - _start)
+    movb (KERNEL_LOAD_ADDRESS + rtc_hour - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+    movb (KERNEL_LOAD_ADDRESS + rtc_day - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_day - _start)
+    movb (KERNEL_LOAD_ADDRESS + rtc_month - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_month - _start)
+    movb (KERNEL_LOAD_ADDRESS + rtc_year - _start), %al
+    call rtc_bcd_to_binary
+    movb %al, (KERNEL_LOAD_ADDRESS + rtc_year - _start)
+rtc_fields_binary:
+    /* Register B bit 1 selects 24-hour mode. Normalize 12-hour RTCs. */
+    testb $0x02, (KERNEL_LOAD_ADDRESS + rtc_register_b - _start)
+    jnz rtc_snapshot_complete
+    cmpb $12, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+    jne rtc_hour_not_twelve
+    cmpb $0, (KERNEL_LOAD_ADDRESS + rtc_pm_flag - _start)
+    jne rtc_snapshot_complete
+    movb $0, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+    jmp rtc_snapshot_complete
+rtc_hour_not_twelve:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + rtc_pm_flag - _start)
+    je rtc_snapshot_complete
+    addb $12, (KERNEL_LOAD_ADDRESS + rtc_hour - _start)
+rtc_snapshot_complete:
+    popal
+    ret
+
+/* AL=packed BCD, returns AL=binary. */
+rtc_bcd_to_binary:
+    pushl %ebx
+    movb %al, %bl
+    andb $0x0f, %bl
+    andb $0xf0, %al
+    shrb $4, %al
+    movb $10, %ah
+    mulb %ah
+    addb %bl, %al
+    popl %ebx
+    ret
+
+rtc_format_display:
+    pushal
+    movl $(KERNEL_LOAD_ADDRESS + rtc_display_text - _start), %ebx
+    movb (KERNEL_LOAD_ADDRESS + rtc_day - _start), %al
+    call rtc_store_two_digits
+    movb $'/', 2(%ebx)
+    addl $3, %ebx
+    movb (KERNEL_LOAD_ADDRESS + rtc_month - _start), %al
+    call rtc_store_two_digits
+    movb $'/', 2(%ebx)
+    movb $'2', 3(%ebx)
+    movb $'0', 4(%ebx)
+    addl $5, %ebx
+    movb (KERNEL_LOAD_ADDRESS + rtc_year - _start), %al
+    call rtc_store_two_digits
+    movb $' ', 2(%ebx)
+    movb $' ', 3(%ebx)
+    addl $4, %ebx
+    movb (KERNEL_LOAD_ADDRESS + rtc_hour - _start), %al
+    call rtc_store_two_digits
+    movb $':', 2(%ebx)
+    addl $3, %ebx
+    movb (KERNEL_LOAD_ADDRESS + rtc_minute - _start), %al
+    call rtc_store_two_digits
+    movb $0, 2(%ebx)
+    popal
+    ret
+
+/* AL=value 0..99, EBX=two-character destination. */
+rtc_store_two_digits:
+    pushl %eax
+    pushl %ecx
+    pushl %edx
+    movzbl %al, %eax
+    xorl %edx, %edx
+    movl $10, %ecx
+    divl %ecx
+    addb $'0', %al
+    movb %al, 0(%ebx)
+    addb $'0', %dl
+    movb %dl, 1(%ebx)
+    popl %edx
+    popl %ecx
+    popl %eax
+    ret
+
+wm_sample_activity:
+    pushal
+    movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + activity_current_events - _start)
+    subl (KERNEL_LOAD_ADDRESS + activity_previous_events - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + activity_rate - _start)
+    movl (KERNEL_LOAD_ADDRESS + activity_current_events - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + activity_previous_events - _start)
+    xorl %ecx, %ecx
+activity_shift_next:
+    cmpl $(WM_ACTIVITY_SAMPLES - 1), %ecx
+    jae activity_store_latest
+    movb (KERNEL_LOAD_ADDRESS + activity_history + 1 - _start)(,%ecx), %al
+    movb %al, (KERNEL_LOAD_ADDRESS + activity_history - _start)(,%ecx)
+    incl %ecx
+    jmp activity_shift_next
+activity_store_latest:
+    movl (KERNEL_LOAD_ADDRESS + activity_rate - _start), %eax
+    cmpl $15, %eax
+    jbe activity_sample_clamped
+    movl $15, %eax
+activity_sample_clamped:
+    movb %al, (KERNEL_LOAD_ADDRESS + activity_history + WM_ACTIVITY_SAMPLES - 1 - _start)
+    popal
+    ret
+
+/* Redraw live root surfaces once per RTC second while preserving stacking. */
+wm_render_live_update:
+    call gui_save_terminal_state
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_x - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start)
+    call wm_render_system_overlay
+    call wm_render_all_windows
+    cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    je wm_live_no_menu
+    call wm_render_root_menu
+wm_live_no_menu:
+    call wm_render_taskbar
+    call gui_restore_terminal_state
+    cmpb $WM_TERMINAL, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    jne wm_live_complete
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags + WM_TERMINAL - _start), %eax
+    testb $WM_FLAG_VISIBLE, %al
+    jz wm_live_complete
+    testb $WM_FLAG_MINIMIZED, %al
+    jnz wm_live_complete
+    call draw_cursor
+wm_live_complete:
+    ret
+
 /* A root-level system monitor inspired by Conky. It reports only native,
  * measurable state and remains behind ordinary application windows. */
 wm_render_system_overlay:
@@ -94,13 +350,13 @@ wm_render_system_overlay:
     movl $808, %eax
     movl $32, %ebx
     movl $200, %ecx
-    movl $344, %edx
+    movl $576, %edx
     movl $GUI_COLOR_HEADER, %esi
     call gui_fill_rectangle
     movl $808, %eax
     movl $32, %ebx
     movl $3, %ecx
-    movl $344, %edx
+    movl $576, %edx
     movl $GUI_COLOR_PINK, %esi
     call gui_fill_rectangle
 
@@ -138,108 +394,277 @@ wm_render_system_overlay:
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
-    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_events - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_activity - _start), %esi
     movl $824, %eax
     movl $144, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
-    movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
-    movl $888, %ebx
+    movl (KERNEL_LOAD_ADDRESS + activity_rate - _start), %eax
+    movl $912, %ebx
     movl $144, %edx
     movl $GUI_COLOR_GREEN, %ecx
     call gui_number_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_events_per_second - _start), %esi
+    movl $944, %eax
+    movl $144, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+
+    call wm_render_activity_graph
+
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_apps - _start), %esi
+    movl $824, %eax
+    movl $236, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    call wm_count_application_states
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_open_apps - _start), %eax
+    movl $872, %ebx
+    movl $236, %edx
+    movl $GUI_COLOR_GREEN, %ecx
+    call gui_number_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_open_short - _start), %esi
+    movl $888, %eax
+    movl $236, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_minimized_apps - _start), %eax
+    movl $936, %ebx
+    movl $236, %edx
+    movl $GUI_COLOR_PINK, %ecx
+    call gui_number_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_min_short - _start), %esi
+    movl $952, %eax
+    movl $236, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+
+    movl $WM_HOME, %edi
+    movl $260, %edx
+    call wm_render_application_state
+    movl $WM_FILES, %edi
+    movl $284, %edx
+    call wm_render_application_state
+    movl $WM_TRAITS, %edi
+    movl $308, %edx
+    call wm_render_application_state
+    movl $WM_TERMINAL, %edi
+    movl $332, %edx
+    call wm_render_application_state
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_ram - _start), %esi
     movl $824, %eax
-    movl $172, %edx
+    movl $368, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl BOOT_MEMORY_MIB(%ebp), %eax
     movl $888, %ebx
-    movl $172, %edx
+    movl $368, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_mib_short - _start), %esi
     movl $944, %eax
-    movl $172, %edx
+    movl $368, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_disk - _start), %esi
     movl $824, %eax
-    movl $200, %edx
+    movl $396, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_free_kib - _start), %eax
     movl $872, %ebx
-    movl $200, %edx
+    movl $396, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_slash - _start), %esi
     movl $912, %eax
-    movl $200, %edx
+    movl $396, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_total_kib - _start), %eax
     movl $928, %ebx
-    movl $200, %edx
+    movl $396, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_kib - _start), %esi
     movl $968, %eax
-    movl $200, %edx
+    movl $396, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_files - _start), %esi
     movl $824, %eax
-    movl $228, %edx
+    movl $424, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_file_count - _start), %eax
     movl $888, %ebx
-    movl $228, %edx
+    movl $424, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_video - _start), %esi
     movl $824, %eax
-    movl $256, %edx
+    movl $452, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_video_mode - _start), %esi
     movl $880, %eax
-    movl $256, %edx
+    movl $452, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_temp - _start), %esi
     movl $824, %eax
-    movl $284, %edx
+    movl $480, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_unavailable - _start), %esi
     movl $888, %eax
-    movl $284, %edx
+    movl $480, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_network - _start), %esi
     movl $824, %eax
-    movl $312, %edx
+    movl $508, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_offline - _start), %esi
     movl $888, %eax
-    movl $312, %edx
+    movl $508, %edx
     movl $GUI_COLOR_GREEN, %ecx
     call gui_print_at
 
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_events - _start), %esi
+    movl $824, %eax
+    movl $536, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
+    movl $896, %ebx
+    movl $536, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_number_at
+
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_hint - _start), %esi
     movl $824, %eax
-    movl $348, %edx
+    movl $568, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
+    ret
+
+wm_render_activity_graph:
+    pushal
+    movl $824, %eax
+    movl $172, %ebx
+    movl $160, %ecx
+    movl $48, %edx
+    movl $GUI_COLOR_DARK, %esi
+    call gui_fill_rectangle
+    movl $824, %eax
+    movl $218, %ebx
+    movl $160, %ecx
+    movl $2, %edx
+    movl $GUI_COLOR_ACTIVE, %esi
+    call gui_fill_rectangle
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_overlay_graph_index - _start)
+gui_overlay_graph_next:
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_graph_index - _start), %ecx
+    cmpl $WM_ACTIVITY_SAMPLES, %ecx
+    jae gui_overlay_graph_complete
+    movzbl (KERNEL_LOAD_ADDRESS + activity_history - _start)(,%ecx), %edx
+    testl %edx, %edx
+    jz gui_overlay_graph_advance
+    imull $3, %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_overlay_graph_height - _start)
+    movl %ecx, %eax
+    shll $3, %eax
+    addl $824, %eax
+    movl $218, %ebx
+    subl %edx, %ebx
+    movl $5, %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_graph_index - _start), %edi
+    cmpl $(WM_ACTIVITY_SAMPLES - 1), %edi
+    jne gui_overlay_graph_old
+    movl $GUI_COLOR_PINK, %esi
+    jmp gui_overlay_graph_color_ready
+gui_overlay_graph_old:
+    movl $GUI_COLOR_GREEN, %esi
+gui_overlay_graph_color_ready:
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_graph_height - _start), %edx
+    call gui_fill_rectangle
+gui_overlay_graph_advance:
+    incl (KERNEL_LOAD_ADDRESS + gui_overlay_graph_index - _start)
+    jmp gui_overlay_graph_next
+gui_overlay_graph_complete:
+    popal
+    ret
+
+wm_count_application_states:
+    pushal
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_overlay_open_apps - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_overlay_minimized_apps - _start)
+    xorl %ecx, %ecx
+wm_count_apps_next:
+    cmpl $WM_COUNT, %ecx
+    jae wm_count_apps_complete
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%ecx), %edx
+    testb $WM_FLAG_VISIBLE, %dl
+    jz wm_count_apps_advance
+    testb $WM_FLAG_MINIMIZED, %dl
+    jz wm_count_app_open
+    incl (KERNEL_LOAD_ADDRESS + gui_overlay_minimized_apps - _start)
+    jmp wm_count_apps_advance
+wm_count_app_open:
+    incl (KERNEL_LOAD_ADDRESS + gui_overlay_open_apps - _start)
+wm_count_apps_advance:
+    incl %ecx
+    jmp wm_count_apps_next
+wm_count_apps_complete:
+    popal
+    ret
+
+/* EDI=window identifier, EDX=screen row. */
+wm_render_application_state:
+    pushal
+    movl %edi, (KERNEL_LOAD_ADDRESS + gui_overlay_app_id - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_overlay_app_y - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_task_title_table - _start)(,%edi,4), %esi
+    movl $824, %eax
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_print_at
+
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_app_id - _start), %edi
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%edi), %eax
+    testb $WM_FLAG_VISIBLE, %al
+    jz wm_overlay_app_closed
+    testb $WM_FLAG_MINIMIZED, %al
+    jnz wm_overlay_app_minimized
+    movzbl (KERNEL_LOAD_ADDRESS + wm_active - _start), %eax
+    cmpl %edi, %eax
+    jne wm_overlay_app_open
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_app_active - _start), %esi
+    movl $GUI_COLOR_PINK, %ecx
+    jmp wm_overlay_app_status_ready
+wm_overlay_app_open:
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_app_open - _start), %esi
+    movl $GUI_COLOR_GREEN, %ecx
+    jmp wm_overlay_app_status_ready
+wm_overlay_app_minimized:
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_app_minimized - _start), %esi
+    movl $GUI_COLOR_PINK, %ecx
+    jmp wm_overlay_app_status_ready
+wm_overlay_app_closed:
+    movl $(KERNEL_LOAD_ADDRESS + gui_overlay_app_closed - _start), %esi
+    movl $GUI_COLOR_DIM, %ecx
+wm_overlay_app_status_ready:
+    movl $912, %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_overlay_app_y - _start), %edx
+    call gui_print_at
+    popal
     ret
 
 gui_overlay_collect:
@@ -461,6 +886,69 @@ wm_render_title_buttons:
     movl $(KERNEL_LOAD_ADDRESS + wm_close_label - _start), %edx
     movl $GUI_COLOR_RED, %esi
     call gui_draw_small_button
+    ret
+
+wm_render_taskbar:
+    movl $0, %eax
+    movl $WM_TASKBAR_Y, %ebx
+    movl $1024, %ecx
+    movl $WM_TASKBAR_HEIGHT, %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    call gui_draw_bevel_box
+
+    movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_label - _start), %esi
+    movl $16, %eax
+    movl $708, %edx
+    movl $GUI_COLOR_LILAC, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
+    movl $904, %eax
+    movl $708, %edx
+    movl $GUI_COLOR_PINK, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + rtc_display_text - _start), %esi
+    movl $872, %eax
+    movl $740, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_print_at
+
+    movl $0, (KERNEL_LOAD_ADDRESS + wm_taskbar_count - _start)
+    movl $0xffffffff, (KERNEL_LOAD_ADDRESS + wm_taskbar_slots - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + wm_taskbar_scan - _start)
+wm_taskbar_scan_next:
+    movl (KERNEL_LOAD_ADDRESS + wm_taskbar_scan - _start), %edi
+    cmpl $WM_COUNT, %edi
+    jae wm_taskbar_scan_complete
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%edi), %eax
+    testb $WM_FLAG_VISIBLE, %al
+    jz wm_taskbar_scan_advance
+    testb $WM_FLAG_MINIMIZED, %al
+    jz wm_taskbar_scan_advance
+
+    movl (KERNEL_LOAD_ADDRESS + wm_taskbar_count - _start), %ecx
+    movl %edi, %eax
+    movb %al, (KERNEL_LOAD_ADDRESS + wm_taskbar_slots - _start)(,%ecx)
+    movl %ecx, %eax
+    imull $WM_TASK_BUTTON_STRIDE, %eax
+    addl $WM_TASK_BUTTON_X, %eax
+    movl $WM_TASK_BUTTON_Y, %ebx
+    movl $WM_TASK_BUTTON_WIDTH, %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_task_title_table - _start)(,%edi,4), %edx
+    movl $GUI_COLOR_ACTIVE, %esi
+    call gui_draw_classic_button
+    incl (KERNEL_LOAD_ADDRESS + wm_taskbar_count - _start)
+wm_taskbar_scan_advance:
+    incl (KERNEL_LOAD_ADDRESS + wm_taskbar_scan - _start)
+    jmp wm_taskbar_scan_next
+wm_taskbar_scan_complete:
+    cmpl $0, (KERNEL_LOAD_ADDRESS + wm_taskbar_count - _start)
+    jne wm_taskbar_complete
+    movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_empty - _start), %esi
+    movl $16, %eax
+    movl $740, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+wm_taskbar_complete:
     ret
 
 wm_render_root_menu:
@@ -939,6 +1427,9 @@ gui_build_selection_valid:
 
 /* Right-click root binding: place the application menu at the pointer. */
 gui_handle_root_click:
+    movl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %eax
+    cmpl $WM_TASKBAR_Y, %eax
+    jae wm_root_click_complete
     movl (KERNEL_LOAD_ADDRESS + mouse_x - _start), %eax
     cmpl $(1024 - WM_ROOT_MENU_WIDTH), %eax
     jbe wm_root_menu_x_ready
@@ -946,14 +1437,15 @@ gui_handle_root_click:
 wm_root_menu_x_ready:
     movl %eax, (KERNEL_LOAD_ADDRESS + wm_menu_x - _start)
     movl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %eax
-    cmpl $(768 - WM_ROOT_MENU_HEIGHT), %eax
+    cmpl $(WM_TASKBAR_Y - WM_ROOT_MENU_HEIGHT), %eax
     jbe wm_root_menu_y_ready
-    movl $(768 - WM_ROOT_MENU_HEIGHT), %eax
+    movl $(WM_TASKBAR_Y - WM_ROOT_MENU_HEIGHT), %eax
 wm_root_menu_y_ready:
     movl %eax, (KERNEL_LOAD_ADDRESS + wm_menu_y - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
     call render_shell
+wm_root_click_complete:
     ret
 
 /* Redraw only when the pointer crosses a root-menu row boundary. */
@@ -995,9 +1487,30 @@ gui_handle_click:
     movl %eax, (KERNEL_LOAD_ADDRESS + wm_pointer_x - _start)
     movl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + wm_pointer_y - _start)
+    cmpl $WM_TASKBAR_Y, %eax
+    jae wm_click_taskbar
     cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
     jne wm_click_root_menu
     jmp wm_find_window
+
+wm_click_taskbar:
+    cmpl $WM_TASK_BUTTON_Y, %eax
+    jb gui_click_complete
+    movl (KERNEL_LOAD_ADDRESS + wm_pointer_x - _start), %eax
+    cmpl $WM_TASK_BUTTON_X, %eax
+    jb gui_click_complete
+    subl $WM_TASK_BUTTON_X, %eax
+    xorl %edx, %edx
+    movl $WM_TASK_BUTTON_STRIDE, %ecx
+    divl %ecx
+    cmpl $WM_TASK_BUTTON_WIDTH, %edx
+    jae gui_click_complete
+    cmpl (KERNEL_LOAD_ADDRESS + wm_taskbar_count - _start), %eax
+    jae gui_click_complete
+    movzbl (KERNEL_LOAD_ADDRESS + wm_taskbar_slots - _start)(,%eax), %eax
+    cmpl $WM_COUNT, %eax
+    jae gui_click_complete
+    jmp wm_open_selected
 
 wm_click_root_menu:
     movl (KERNEL_LOAD_ADDRESS + wm_pointer_x - _start), %eax
@@ -1256,7 +1769,7 @@ wm_toggle_maximize:
     movl $0, (KERNEL_LOAD_ADDRESS + wm_x - _start)(,%eax,4)
     movl $0, (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%eax,4)
     movl $1024, (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%eax,4)
-    movl $768, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)
+    movl $WM_TASKBAR_Y, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)
     orb $WM_FLAG_MAXIMIZED, %dl
     jmp wm_maximize_store
 wm_restore_window:
@@ -1362,7 +1875,7 @@ wm_drag_x_ready:
     jns wm_drag_y_nonnegative
     xorl %ecx, %ecx
 wm_drag_y_nonnegative:
-    movl $768, %edx
+    movl $WM_TASKBAR_Y, %edx
     subl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4), %edx
     cmpl %edx, %ecx
     jbe wm_drag_y_ready
@@ -2031,9 +2544,18 @@ gui_window_traits_caption: .asciz "M.I.L.O TRAIT MONITOR"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.26.2"
+gui_overlay_version: .asciz "0.27"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
+gui_overlay_activity: .asciz "ACTIVITY"
+gui_overlay_events_per_second: .asciz "EV/S"
+gui_overlay_apps: .asciz "APPS"
+gui_overlay_open_short: .asciz "OPEN"
+gui_overlay_min_short: .asciz "MIN"
+gui_overlay_app_active: .asciz "ACTIVE"
+gui_overlay_app_open: .asciz "OPEN"
+gui_overlay_app_minimized: .asciz "MINIMIZED"
+gui_overlay_app_closed: .asciz "CLOSED"
 gui_overlay_events: .asciz "EVENTS"
 gui_overlay_ram: .asciz "RAM"
 gui_overlay_disk: .asciz "DISK"
@@ -2047,6 +2569,9 @@ gui_overlay_offline: .asciz "OFFLINE"
 gui_overlay_slash: .asciz "/"
 gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
+gui_taskbar_label: .asciz "TASKS // MINIMIZED"
+gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
+gui_taskbar_version: .asciz "M.I.L.O V0.27"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -2058,7 +2583,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.26.2"
+gui_version_status: .asciz "KERNEL   0.27"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"
@@ -2130,9 +2655,19 @@ gui_rect_height: .long 0
 gui_overlay_free_kib: .long 0
 gui_overlay_total_kib: .long 0
 gui_overlay_file_count: .long 0
+gui_overlay_graph_index: .long 0
+gui_overlay_graph_height: .long 0
+gui_overlay_open_apps: .long 0
+gui_overlay_minimized_apps: .long 0
+gui_overlay_app_id: .long 0
+gui_overlay_app_y: .long 0
 gui_file_type_label: .long 0
 gui_file_type_color: .long GUI_COLOR_DIM
 system_event_count: .long 0
+activity_previous_events: .long 0
+activity_current_events: .long 0
+activity_rate: .long 0
+rtc_poll_divider: .long 0
 wm_render_index: .long 0
 wm_current: .long 0
 wm_current_x: .long 0
@@ -2152,6 +2687,8 @@ wm_preview_x: .long 0
 wm_preview_y: .long 0
 wm_menu_x: .long 0
 wm_menu_y: .long 0
+wm_taskbar_count: .long 0
+wm_taskbar_scan: .long 0
 wm_x: .long 64, 104, 144, 96
 wm_y: .long 64, 92, 120, 240
 wm_w: .long 832, 832, 832, 832
@@ -2165,6 +2702,11 @@ wm_title_table:
     .long KERNEL_LOAD_ADDRESS + gui_window_files_caption - _start
     .long KERNEL_LOAD_ADDRESS + gui_window_traits_caption - _start
     .long KERNEL_LOAD_ADDRESS + gui_terminal_window_title - _start
+wm_task_title_table:
+    .long KERNEL_LOAD_ADDRESS + gui_home_label - _start
+    .long KERNEL_LOAD_ADDRESS + gui_files_label - _start
+    .long KERNEL_LOAD_ADDRESS + gui_traits_label - _start
+    .long KERNEL_LOAD_ADDRESS + gui_terminal_label - _start
 gui_file_entries: .space GUI_FILE_ROWS * 4
 wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL
 wm_flags: .byte 0, 0, 0, 0
@@ -2172,6 +2714,19 @@ wm_active: .byte WM_NONE
 wm_drag_window: .byte WM_NONE
 wm_menu_open: .byte 0
 wm_menu_hover: .byte WM_NONE
+wm_taskbar_slots: .space WM_COUNT
+activity_history: .space WM_ACTIVITY_SAMPLES
+rtc_display_text: .ascii "00/00/2000  00:00\0"
+rtc_raw_second: .byte 0
+rtc_second: .byte 0
+rtc_minute: .byte 0
+rtc_hour: .byte 0
+rtc_day: .byte 0
+rtc_month: .byte 0
+rtc_year: .byte 0
+rtc_register_b: .byte 0
+rtc_pm_flag: .byte 0
+rtc_last_second: .byte 0xff
 gui_saved_capture: .byte 1
 gui_visible_files: .byte 0
 gui_selected_index: .byte 0
