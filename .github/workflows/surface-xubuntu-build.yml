@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Check out build branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Free runner disk space
         shell: bash
@@ -36,9 +36,9 @@ jobs:
           s = p.read_text()
 
           # Force the drivers required to see a DD-written live USB on the
-          # Surface Pro 4 into the Surface-kernel initrd. This avoids relying
-          # on the GitHub runner's detected hardware when mkinitramfs decides
-          # which modules to include.
+          # Surface Pro 4 into the Surface-kernel initrd whenever they are
+          # modular. If a driver is built into the kernel, mkinitramfs simply
+          # has no separate .ko file to copy, which is also valid.
           initrd_marker = 'log "Building a Surface-kernel initrd WITH Ubuntu casper"'
           initrd_inject = r'''log "Forcing Surface live-USB storage/filesystem drivers into initrd"
           sudo tee -a "$FULL_MERGED/etc/initramfs-tools/modules" >/dev/null <<'MODULES'
@@ -57,13 +57,38 @@ jobs:
               raise SystemExit('Could not find initrd build marker in remaster script')
           s = s.replace(initrd_marker, initrd_inject + initrd_marker, 1)
 
-          # Validate the critical live-media modules before the ISO is built.
+          # Validate each critical live-media driver correctly: it may either
+          # be built directly into the Surface kernel or exist as a module in
+          # the generated initrd. Reject only if neither is true.
           validation_marker = 'log "Adding Surface diagnostics to the live desktop"'
-          validation_inject = r'''log "Validating critical live-USB modules in Surface initrd"
+          validation_inject = r'''log "Validating critical live-USB support in Surface initrd"
           INITRD_LIST="$WORKDIR/surface-initrd-files.txt"
           lsinitramfs "$LIVE_INITRD" > "$INITRD_LIST"
-          for mod in xhci-pci usb-storage uas.ko squashfs.ko loop.ko isofs.ko; do
-            grep -q "$mod" "$INITRD_LIST" || die "Surface initrd missing required live-USB module: $mod"
+
+          check_driver() {
+            local mod="$1"
+            local module_file
+            module_file="$(sudo chroot "$FULL_MERGED" modinfo -k "$SURFACE_VER" -F filename "$mod" 2>/dev/null || true)"
+
+            if [[ "$module_file" == "(builtin)" ]]; then
+              echo "  OK: $mod is built into $SURFACE_VER"
+              return 0
+            fi
+
+            if [[ -n "$module_file" ]]; then
+              local base
+              base="$(basename "$module_file")"
+              if grep -qF "$base" "$INITRD_LIST"; then
+                echo "  OK: $mod present in initrd as $base"
+                return 0
+              fi
+            fi
+
+            die "Surface live initrd lacks required driver: $mod"
+          }
+
+          for mod in xhci_pci xhci_hcd usb_storage uas sd_mod squashfs loop isofs; do
+            check_driver "$mod"
           done
 
           '''
@@ -142,7 +167,7 @@ jobs:
       - name: Upload ready-to-flash ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v4
+          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v5
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
