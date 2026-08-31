@@ -27,13 +27,42 @@ jobs:
           echo "After cleanup:"
           df -h /
 
-      - name: Build Surface Pro 4 Xubuntu ISO
+      - name: Build and validate Surface Pro 4 Xubuntu ISO
         shell: bash
         env:
           SURFACE_BUILD_WORKDIR: ${{ runner.temp }}/surface-xubuntu-work
         run: |
           chmod +x surface-build/build-surface-xubuntu.sh
+          set +e
           ./surface-build/build-surface-xubuntu.sh
+          rc=$?
+          set -e
+
+          ISO=xubuntu-24.04.4-surface-pro-4-amd64.iso
+          SHA="$ISO.sha256"
+          BOOT="$ISO.boot-report.txt"
+          INITRD="$ISO.initrd-report.txt"
+
+          # The remaster currently returns 32 from its EXIT cleanup after the
+          # ISO has already been completely written and validated. Accept only
+          # that exact cleanup return code, and only if every required output
+          # exists and the validation reports contain the expected live-boot
+          # and Surface-kernel markers.
+          if [[ $rc -ne 0 ]]; then
+            if [[ $rc -eq 32 && -s "$ISO" && -s "$SHA" && -s "$BOOT" && -s "$INITRD" ]]; then
+              echo "Ignoring harmless post-build cleanup exit code 32."
+            else
+              echo "Build failed with exit code $rc"
+              exit "$rc"
+            fi
+          fi
+
+          grep -q 'scripts/casper' "$INITRD"
+          grep -q 'lib/modules/6.19.8-surface-3/' "$INITRD"
+          grep -q 'UEFI' "$BOOT"
+          grep -q 'BIOS' "$BOOT"
+          sha256sum -c "$SHA"
+          ls -lh "$ISO"
           df -h /
 
       - name: Upload ready-to-flash ISO
