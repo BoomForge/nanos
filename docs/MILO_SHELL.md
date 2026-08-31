@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.27.1 extends the accepted V0.26 native root desktop. Its interaction model
+V0.28 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -27,7 +27,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - A new right-button press opens `M.I.L.O APPLICATIONS` at the pointer.
 - Menu placement is clamped at the right edge and above the taskbar so the
   complete menu remains visible.
-- The compact menu opens System, FileHound, Traits, or Terminal.
+- The compact menu opens System, FileHound, Traits, Terminal, or Writer.
 - Clicking an application entry opens or restores its independent window and
   closes the menu. Clicking elsewhere dismisses it.
 - Moving across menu entries changes the highlighted row only when a boundary
@@ -42,7 +42,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.27.1` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.28` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -55,7 +55,7 @@ normal windows naturally cover it. It reports:
 - `I386 // POLL` CPU mode;
 - live input-event rate and a rolling 20-second graph scaled across 0--120+
   events per second;
-- current state for System, FileHound, Traits, and Terminal (`ACTIVE`, `OPEN`,
+- current state for System, FileHound, Traits, Terminal, and Writer (`ACTIVE`, `OPEN`,
   `MINIMIZED`, or `CLOSED`);
 - open and minimized application counts;
 - total processed keyboard and complete mouse-packet event count;
@@ -78,9 +78,9 @@ network time dependency.
 
 ## Native window model
 
-- System, FileHound, Traits, and Terminal are four kernel-owned application
+- System, FileHound, Traits, Terminal, and Writer are five kernel-owned application
   windows, not regions of one dashboard.
-- Windows overlap and a four-entry z-order determines back-to-front rendering.
+- Windows overlap and a five-entry z-order determines back-to-front rendering.
 - Clicking a visible window focuses and raises it.
 - Dragging a non-maximized titlebar shows a lightweight XOR outline; releasing
   commits a position bounded to the 1024-by-704 workspace above the taskbar.
@@ -98,6 +98,20 @@ applications can be restored from either the taskbar or root menu.
 Typing while Terminal is hidden or minimized restores and focuses it. This
 keeps an immediate keyboard recovery path without forcing a terminal-shaped
 region onto the desktop.
+
+## Native Writer
+
+Writer is a fifth kernel-owned window, not a Terminal mode. FileHound's Edit
+action opens the selected document directly in it. Its logical viewport is
+recomputed from the current client width and height on every composition;
+long lines pan with the caret and logical rows scroll to keep it visible.
+Keyboard navigation and mouse clicks place the caret in the underlying text.
+`Ctrl+S` and Save use the verified FAT12 write path, Save As validates an 8.3
+name, and closing a modified document requires a second explicit close.
+
+The shared clipped text emitter reloads the source byte after coordinate clip
+checks. This prevents resized client text from being replaced by glyphs derived
+from screen coordinates—the corruption exposed by V0.27.1 runtime testing.
 
 ## Terminal surface
 
@@ -145,7 +159,7 @@ operation.
 
 - **Open** restores Terminal and displays the selected file through the
   multi-cluster FAT12 reader.
-- **Edit** restores Terminal and starts the existing 8,191-byte editor.
+- **Edit** opens Writer with the selected file and its 8,191-byte limit.
 - **Copy** and **Rename** request an explicit destination 8.3 filename, then
   use the verified FAT12 mutation paths.
 - **Delete** requires the operator to type exactly `YES`.
@@ -158,7 +172,7 @@ remains read-only assistance and cannot authorize a file mutation.
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.27.1 leaves the cursor visible while bytes one and two arrive, then
+input. V0.28 leaves the cursor visible while bytes one and two arrive, then
 erases, moves, and redraws it once when byte three completes the packet. This
 removes the former three-redraw movement flicker. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
@@ -187,13 +201,14 @@ CMOS normalization, scaled live activity sampling, honest native status
 collection, minimized-only task slots and restore routing, taskbar-aware
 menu/window bounds, bounded resize dispatch, client clipping, adaptive
 FileHound layout, dynamic Terminal viewport, GUI/Terminal text isolation,
-root-menu geometry, hover and routing, four-window behavior, pending-action
+root-menu geometry, hover and routing, five-window behavior, Writer persistence,
+resize-safe glyph rendering, pending-action
 buffer isolation, title actions, complete-packet cursor redraw, PS/2 button
 handling, and cursor storage.
 
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.1.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

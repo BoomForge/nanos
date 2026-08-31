@@ -23,7 +23,7 @@ MILO_FAT12_ARGS := --place=FARTEST.TXT=130
 MILO_ROUTING_TEST := tools/test_milo_routing_contract.py
 MILO_STORAGE_TEST := tools/test_milo_storage_contract.py
 MILO_SHELL_TEST := tools/test_milo_shell_contract.py
-MILO_VERSION ?= 0.27.1
+MILO_VERSION ?= 0.28
 MILO_FLOPPY := build/M.I.L.O-floppy-V$(MILO_VERSION).img
 PYTHON ?= python3
 INITRD_DIR := initrd

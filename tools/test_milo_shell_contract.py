@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.27.1 resizable native desktop."""
+"""Static and binary checks for the V0.28 native desktop and Writer."""
 
 from pathlib import Path
 import re
@@ -44,10 +44,6 @@ def main():
         kernel_source,
         "call terminal_buffer_store_character\n    call draw_character",
     )
-    require(
-        kernel_source,
-        "movb %al, (KERNEL_LOAD_ADDRESS + editor_render_character - _start)",
-    )
 
     for marker in (
         b"M.I.L.O APPLICATIONS",
@@ -72,27 +68,30 @@ def main():
         b"RIGHT CLICK // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.27.1",
+        b"M.I.L.O V0.28",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.27.1",
+        b"M.I.L.O VERSION 0.28",
+        b"M.I.L.O WRITER",
+        b"CTRL+S SAVE",
+        b"UNSAVED // CLOSE AGAIN",
     ):
         assert marker in kernel, marker
 
     # Startup is a root desktop with a lightweight system overlay and a sparse
     # taskbar. No launcher, dashboard application, or ordinary window is open.
     for fragment in (
-        ".equ WM_COUNT, 4",
+        ".equ WM_COUNT, 5",
         ".equ WM_ROOT_MENU_WIDTH, 232",
-        ".equ WM_ROOT_MENU_HEIGHT, 148",
+        ".equ WM_ROOT_MENU_HEIGHT, 176",
         ".equ WM_ROOT_MENU_ROW, 28",
         ".equ WM_TASKBAR_Y, 704",
         ".equ WM_TASKBAR_HEIGHT, 64",
         "movl $1024, %ecx\n    movl $768, %edx",
-        "wm_flags: .byte 0, 0, 0, 0",
+        "wm_flags: .byte 0, 0, 0, 0, 0",
         "wm_active: .byte WM_NONE",
         "call wm_render_system_overlay\n    call wm_render_all_windows",
         "call wm_render_all_windows",
@@ -128,24 +127,24 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $888, %eax\n    movl $708, %edx",
+        "movl $904, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.27.1") * 8 == 1008
+    assert 904 + len("M.I.L.O V0.28") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
-    # Four independent native application windows retain focus, stacking,
+    # Five independent native application windows retain focus, stacking,
     # movement, bounded resizing, controls, terminal state, and file operations.
     for fragment in (
         ".equ WM_FLAG_VISIBLE, 1",
         ".equ WM_FLAG_MINIMIZED, 2",
         ".equ WM_FLAG_MAXIMIZED, 4",
-        "wm_x: .long 64, 104, 144, 96",
-        "wm_y: .long 64, 92, 120, 240",
-        "wm_w: .long 832, 832, 832, 832",
-        "wm_h: .long 456, 456, 456, 456",
-        "wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL",
+        "wm_x: .long 64, 104, 144, 96, 120",
+        "wm_y: .long 64, 92, 120, 240, 72",
+        "wm_w: .long 832, 832, 832, 832, 760",
+        "wm_h: .long 456, 456, 456, 456, 560",
+        "wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL, WM_EDITOR",
         "call wm_bring_to_front",
         "wm_minimize_window:",
         "wm_close_window:",
@@ -155,8 +154,8 @@ def main():
         "movl $WM_TASKBAR_Y, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
         "wm_xor_drag_outline:",
         ".equ WM_RESIZE_GRIP, 20",
-        "wm_min_w: .long 720, 640, 560, 560",
-        "wm_min_h: .long 456, 360, 400, 320",
+        "wm_min_w: .long 720, 640, 560, 560, 560",
+        "wm_min_h: .long 456, 360, 400, 320, 320",
         "wm_resize_window: .byte WM_NONE",
         "wm_render_resize_grip:",
         "wm_resize_drag:",
@@ -192,6 +191,8 @@ def main():
         "gui_clip_right: .long 1024",
         "cmpl (KERNEL_LOAD_ADDRESS + gui_clip_right - _start), %edi",
         "gui_plot_pixel_complete:",
+        "gui_print_raw_draw:\n    /* Clip checks use EAX for coordinates; reload the actual byte",
+        "movzbl (%esi), %eax\n    pushal\n    call draw_character",
     ):
         require(shell_source, fragment)
     gui_text = shell_source[
@@ -200,6 +201,26 @@ def main():
     ]
     assert "call print_string" not in gui_text
     assert "call print_u32" not in gui_text
+
+    # Writer is a real fifth application with a resize-derived viewport,
+    # native FAT12 persistence, mouse caret placement, and guarded close.
+    for fragment in (
+        "gui_render_editor:",
+        "gui_editor_visible_columns: .long 0",
+        "gui_editor_visible_rows: .long 0",
+        "call calculate_text_position",
+        "gui_editor_click:",
+        "call editor_begin_save_as",
+        "jb editor_save",
+        "call start_editor",
+    ):
+        require(shell_source, fragment)
+    for fragment in (
+        "cmpb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)",
+        "movb $4, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)",
+        "movl $1, %eax\n    ret\n\nwrite_no_space:",
+    ):
+        require(kernel_source, fragment)
 
     # FileHound is a native FAT12-root adaptation: one compact pane, aligned
     # metadata columns, category markers, honest paging, and the real existing
@@ -302,6 +323,7 @@ def main():
         (88, "wm_open_files"),
         (116, "wm_open_traits"),
         (144, "wm_open_terminal"),
+        (172, "wm_open_editor"),
     ):
         require(shell_source, "cmpl $%d, %%edx\n    jb %s" % (boundary, target))
 
@@ -350,8 +372,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.27.1 desktop contract: %d-byte kernel, held splash, RTC "
-        "taskbar, scaled event graph, clipped resize, FileHound, terminal OK"
+        "M.I.L.O V0.28 desktop contract: %d-byte kernel, held splash, RTC "
+        "taskbar, clipped resize, FileHound, Writer, terminal OK"
         % len(kernel)
     )
 

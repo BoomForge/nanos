@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the V0.27.1 boot layout, splash hold, and FAT12 fixture."""
+"""Audit the V0.28 boot layout, splash hold, and FAT12 fixture."""
 
 from pathlib import Path
 import struct
@@ -56,7 +56,7 @@ def main():
     kernel = Path(sys.argv[3]).read_bytes()
     stage2_source = Path(sys.argv[4]).read_text()
     assert len(image) == IMAGE_SIZE, len(image)
-    assert image[3:11] == b"MILO27.1", image[3:11]
+    assert image[3:11] == b"MILO0.28", image[3:11]
     assert b"M.I.L.O stage 1 online" not in image
     assert b"M.I.L.O stage 2 online" not in image
     assert b"M.I.L.O SYSTEM INITIALISING..." in image
@@ -75,7 +75,7 @@ def main():
     assert len(kernel) <= KERNEL_RESERVED_SECTORS * SECTOR_SIZE
     kernel_offset = KERNEL_START_SECTOR * SECTOR_SIZE
     assert image[kernel_offset:kernel_offset + len(kernel)] == kernel
-    assert b"M.I.L.O VERSION 0.27.1" in kernel
+    assert b"M.I.L.O VERSION 0.28" in kernel
 
     for fragment in (
         "call render_status\n    call hold_splash_minimum",

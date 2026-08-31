@@ -90,7 +90,13 @@ keyboard_wait:
     inb $0x60, %al
     incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)
     pushl %eax
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
+    jne keyboard_focus_editor
     call wm_focus_terminal_for_input
+    jmp keyboard_focus_ready
+keyboard_focus_editor:
+    call wm_focus_editor_for_input
+keyboard_focus_ready:
     popl %eax
 
     cmpb $0xe0, %al
@@ -123,6 +129,8 @@ keyboard_wait:
     /* Accept keypad-style navigation codes when firmware omits E0. */
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     je keyboard_test_character
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne keyboard_test_character
     cmpb $0x4b, %al
     je editor_cursor_left
     cmpb $0x4d, %al
@@ -168,6 +176,8 @@ keyboard_character_ready:
     jz keyboard_poll
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     je terminal_character_ready
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne editor_name_character
     cmpb $0, (KERNEL_LOAD_ADDRESS + control_pressed - _start)
     je editor_character
     cmpb $'s', %al
@@ -214,6 +224,8 @@ keyboard_extended:
     jmp keyboard_poll
 
 keyboard_editor_extended:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne keyboard_poll
     cmpb $0x4b, %al
     je editor_cursor_left
     cmpb $0x4d, %al
@@ -258,6 +270,8 @@ keyboard_escape:
     call gui_cancel_pending_action
     jmp keyboard_poll
 keyboard_escape_editor:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne editor_name_cancel
     call editor_exit
     jmp keyboard_poll
 
@@ -267,7 +281,11 @@ keyboard_caps_lock:
 
 keyboard_backspace:
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    jne editor_backspace
+    je keyboard_terminal_backspace
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne editor_name_backspace
+    jmp editor_backspace
+keyboard_terminal_backspace:
     movl (KERNEL_LOAD_ADDRESS + input_length - _start), %ecx
     testl %ecx, %ecx
     jz keyboard_poll
@@ -284,7 +302,11 @@ keyboard_backspace:
 
 keyboard_enter:
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    jne editor_newline
+    je keyboard_terminal_enter
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jne editor_name_commit
+    jmp editor_newline
+keyboard_terminal_enter:
     call hide_cursor
     movl (KERNEL_LOAD_ADDRESS + input_length - _start), %ecx
     movb $0, (KERNEL_LOAD_ADDRESS + input_buffer - _start)(,%ecx)
@@ -426,6 +448,8 @@ editor_insert_ready:
     movl %edx, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     call render_editor
     jmp keyboard_poll
 
@@ -435,6 +459,52 @@ editor_newline:
     jae keyboard_poll
     movb $'\n', %al
     jmp editor_character
+
+editor_name_character:
+    movzbl (KERNEL_LOAD_ADDRESS + editor_name_length - _start), %ecx
+    cmpl $12, %ecx
+    jae keyboard_poll
+    call uppercase_al
+    movb %al, (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)(,%ecx)
+    incl %ecx
+    movb %cl, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)(,%ecx)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    jmp keyboard_poll
+
+editor_name_backspace:
+    movzbl (KERNEL_LOAD_ADDRESS + editor_name_length - _start), %ecx
+    testl %ecx, %ecx
+    jz keyboard_poll
+    decl %ecx
+    movb %cl, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)(,%ecx)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    jmp keyboard_poll
+
+editor_name_cancel:
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    jmp keyboard_poll
+
+editor_name_commit:
+    movl $(KERNEL_LOAD_ADDRESS + editor_save_as_name - _start), %esi
+    call build_fat_name
+    testl %eax, %eax
+    jz editor_name_invalid
+    movl $(KERNEL_LOAD_ADDRESS + editor_save_as_name - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %edi
+    movl $13, %ecx
+    rep movsb
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    jmp editor_save
+editor_name_invalid:
+    movb $3, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    jmp keyboard_poll
 
 editor_backspace:
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
@@ -454,6 +524,8 @@ editor_delete_shift:
     movl %edx, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     call render_editor
     jmp keyboard_poll
 
@@ -473,6 +545,8 @@ editor_forward_delete_shift:
     movl %ecx, (KERNEL_LOAD_ADDRESS + editor_length - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     call render_editor
     jmp keyboard_poll
 
@@ -696,113 +770,72 @@ editor_page_set:
     call render_editor
     jmp keyboard_poll
 
+editor_begin_save_as:
+    movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + editor_save_as_name - _start), %edi
+    xorl %ecx, %ecx
+editor_save_as_copy_next:
+    cmpl $12, %ecx
+    jae editor_save_as_copy_complete
+    movb (%esi,%ecx), %al
+    movb %al, (%edi,%ecx)
+    testb %al, %al
+    jz editor_save_as_copy_ready
+    incl %ecx
+    jmp editor_save_as_copy_next
+editor_save_as_copy_complete:
+    movb $0, (%edi,%ecx)
+editor_save_as_copy_ready:
+    movb %cl, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    call render_editor
+    ret
+
 editor_save:
-    call hide_cursor
     movl $EDITOR_BUFFER_ADDRESS, %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + write_content - _start)
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + write_length_override - _start)
     movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %esi
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    call clear_terminal
+    movb $1, (KERNEL_LOAD_ADDRESS + write_silent - _start)
     call write_file
-    call render_shell
-    call print_prompt
-    call draw_cursor
+    movb $0, (KERNEL_LOAD_ADDRESS + write_silent - _start)
+    testl %eax, %eax
+    jz editor_save_failed
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    call render_editor
+    jmp keyboard_poll
+editor_save_failed:
+    movb $2, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
     jmp keyboard_poll
 
 editor_exit:
-    call hide_cursor
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    je editor_close_now
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    jne editor_close_now
+    movb $1, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    movb $4, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    ret
+editor_close_now:
     movb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    call clear_terminal
-    movl $(KERNEL_LOAD_ADDRESS + editor_closed_message - _start), %esi
-    call print_string
-    movl $0, (KERNEL_LOAD_ADDRESS + input_length - _start)
-    call print_prompt
-    call draw_cursor
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    movzbl (KERNEL_LOAD_ADDRESS + wm_flags + WM_EDITOR - _start), %edx
+    andb $~(WM_FLAG_VISIBLE | WM_FLAG_MINIMIZED | WM_FLAG_MAXIMIZED), %dl
+    movb %dl, (KERNEL_LOAD_ADDRESS + wm_flags + WM_EDITOR - _start)
+    call wm_select_top_window
     call render_shell
     ret
 
 render_editor:
-    call clear_terminal
-    movl $(KERNEL_LOAD_ADDRESS + editor_header - _start), %esi
-    call print_string
-    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
-    call calculate_text_position
-    movl $(KERNEL_LOAD_ADDRESS + editor_status_prefix - _start), %esi
-    call print_string
-    movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %esi
-    call print_string
-    movl $(KERNEL_LOAD_ADDRESS + editor_status_size - _start), %esi
-    call print_string
-    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
-    call print_u32
-    movl $(KERNEL_LOAD_ADDRESS + editor_status_line - _start), %esi
-    call print_string
-    movl (KERNEL_LOAD_ADDRESS + text_position_line - _start), %eax
-    call print_u32
-    movl $(KERNEL_LOAD_ADDRESS + editor_status_column - _start), %esi
-    call print_string
-    movl (KERNEL_LOAD_ADDRESS + text_position_column - _start), %eax
-    call print_u32
-    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
-    je editor_status_clean
-    movl $(KERNEL_LOAD_ADDRESS + editor_status_modified - _start), %esi
-    call print_string
-editor_status_clean:
-    movl $(KERNEL_LOAD_ADDRESS + newline - _start), %esi
-    call print_string
-    /* Begin no more than seven logical rows before the cursor. */
-    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %ecx
-    xorl %edx, %edx
-    xorl %edi, %edi
-editor_view_find_start:
-    testl %ecx, %ecx
-    jz editor_render_next
-    cmpb $'\n', (EDITOR_BUFFER_ADDRESS - 1)(,%ecx)
-    jne editor_view_previous
-    incl %edx
-    cmpl $7, %edx
-    jae editor_render_next
-editor_view_previous:
-    decl %ecx
-    incl %edi
-    cmpl $700, %edi
-    jae editor_render_next
-    jmp editor_view_find_start
-editor_render_next:
-    cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %ecx
-    jne editor_render_not_cursor
-    movl BOOT_CURSOR_X(%ebp), %eax
-    movl %eax, (KERNEL_LOAD_ADDRESS + editor_screen_x - _start)
-    movl BOOT_CURSOR_Y(%ebp), %eax
-    movl %eax, (KERNEL_LOAD_ADDRESS + editor_screen_y - _start)
-editor_render_not_cursor:
-    cmpl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
-    jae editor_render_complete
-    movb EDITOR_BUFFER_ADDRESS(,%ecx), %al
-    movb %al, (KERNEL_LOAD_ADDRESS + editor_render_character - _start)
-    movl (KERNEL_LOAD_ADDRESS + terminal_last_line - _start), %eax
-    cmpl %eax, BOOT_CURSOR_Y(%ebp)
-    jb editor_render_emit
-    cmpb $'\n', (KERNEL_LOAD_ADDRESS + editor_render_character - _start)
-    je editor_render_complete
-    movl (KERNEL_LOAD_ADDRESS + terminal_right - _start), %eax
-    cmpl %eax, BOOT_CURSOR_X(%ebp)
-    ja editor_render_complete
-editor_render_emit:
-    movb (KERNEL_LOAD_ADDRESS + editor_render_character - _start), %al
-    pushl %ecx
-    call emit_character
-    popl %ecx
-    incl %ecx
-    jmp editor_render_next
-editor_render_complete:
-    movl (KERNEL_LOAD_ADDRESS + editor_screen_x - _start), %eax
-    movl %eax, BOOT_CURSOR_X(%ebp)
-    movl (KERNEL_LOAD_ADDRESS + editor_screen_y - _start), %eax
-    movl %eax, BOOT_CURSOR_Y(%ebp)
-    call draw_cursor
+    call render_shell
     ret
 
 /* EAX=text offset. Store one-based logical line and column. */
@@ -2676,6 +2709,9 @@ editor_name_copied:
     movl $0, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     movb $0, EDITOR_BUFFER_ADDRESS
     movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %esi
     call find_root_entry
@@ -2693,17 +2729,21 @@ editor_ready:
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    call render_editor
-    ret
+    movl $WM_EDITOR, %eax
+    jmp wm_open_selected
 
 editor_file_too_large:
-    movl $(KERNEL_LOAD_ADDRESS + editor_large_message - _start), %esi
-    call print_string
-    ret
+    movb $5, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    jmp editor_open_with_status
 editor_file_unavailable:
-    movl $(KERNEL_LOAD_ADDRESS + file_cache_message - _start), %esi
-    call print_string
-    ret
+    movb $6, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+editor_open_with_status:
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + editor_active - _start)
+    movl $WM_EDITOR, %eax
+    jmp wm_open_selected
 
 /* Create or replace an 8 KiB FAT12 file using a complete cluster chain. */
 write_file:
@@ -2907,15 +2947,18 @@ write_copy_cluster:
     movl $(KERNEL_LOAD_ADDRESS + write_saved_message - _start), %esi
     call print_string
 write_complete:
+    movl $1, %eax
     ret
 
 write_no_space:
     movl $(KERNEL_LOAD_ADDRESS + write_no_space_message - _start), %esi
     call print_string
+    xorl %eax, %eax
     ret
 write_failed:
     movl $(KERNEL_LOAD_ADDRESS + write_failed_message - _start), %esi
     call print_string
+    xorl %eax, %eax
     ret
 
 /* EAX=first cluster. Clear every cached member of the chain in both FATs. */
@@ -3779,7 +3822,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.27.1\n"
+version_message: .asciz "M.I.L.O VERSION 0.28\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4067,6 +4110,10 @@ control_pressed: .byte 0
 editor_active: .byte 0
 editor_dirty: .byte 0
 editor_render_character: .byte 0
+editor_name_mode: .byte 0
+editor_name_length: .byte 0
+editor_save_status: .byte 0
+editor_close_armed: .byte 0
 write_silent: .byte 0
 milo_signal_flags: .byte 0
 milo_response_choice: .byte 0
@@ -4085,6 +4132,7 @@ history_count: .byte 0
 history_view: .byte 0
 write_fat_name: .space 11
 editor_filename: .space 13
+editor_save_as_name: .space 13
 input_buffer: .space INPUT_LIMIT + 1
 routing_buffer: .space INPUT_LIMIT + 1
 history_lengths: .space HISTORY_CAPACITY

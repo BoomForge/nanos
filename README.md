@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.27.1 provides:
+V0.28 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -23,7 +23,10 @@ V0.27.1 provides:
   application states, RAM, FAT12 capacity, file/event counts, video, network,
   and honest unsupported-sensor reporting;
 - native FileHound-inspired FAT12 browsing and real open/edit/copy/rename/delete;
-- persistent multi-cluster text editing and a 30-entry command history; and
+- a fifth native Writer window with resize-aware text, mouse caret placement,
+  Save, Save As, and guarded close;
+- a corrected clipped-glyph path that keeps application text readable through
+  window resizing, plus a 30-entry command history; and
 - Nyx-derived deterministic pattern and trait learning without phrase storage.
 
 The complete scope, architectural boundaries, roadmap, and commit rationale
@@ -46,13 +49,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.27.1.img
+build/M.I.L.O-floppy-V0.28.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.27.1.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -68,6 +71,7 @@ date and time. M.I.L.O contains no network time client or timezone database.
 - Right-click the root desktop to open applications.
 - Minimize a window to place it on the taskbar; click its button to restore it.
 - Drag a non-maximized window's bottom-right grip to resize it.
+- Open Writer directly or choose Edit in FileHound for native document work.
 - Typing automatically opens or restores Terminal.
 - File-changing operations remain explicit and guarded.
 

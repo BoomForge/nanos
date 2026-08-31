@@ -144,7 +144,11 @@ hardware could make the splash effectively invisible and that the first graph
 scale saturated during ordinary input. **V0.27.1** holds the splash for at
 least three seconds, scales the graph across 0--120+ events per second, and
 adds bounded native window resizing with clipped, adaptive application
-layouts and a size-aware Terminal viewport.
+layouts and a size-aware Terminal viewport. Runtime resizing then exposed a
+shared clipped-text bug: coordinate checks overwrote the glyph byte before it
+was drawn. **V0.28** reloads the source byte at the draw boundary and adds a
+fifth native Writer window with a resize-derived viewport, mouse caret
+placement, verified Save and Save As, and guarded close.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -152,8 +156,8 @@ layouts and a size-aware Terminal viewport.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.27.1 candidate kernel is 29,475 bytes; 32 KiB is reserved for
-  controlled growth, leaving 3,293 bytes in the current kernel region.
+- The V0.28 candidate kernel is 31,363 bytes; 32 KiB is reserved for
+  controlled growth, leaving 1,405 bytes in the current kernel region.
 - The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
@@ -299,9 +303,14 @@ contract rather than compensating with per-screen coordinate offsets.
 
 ### V0.28 — graphical document workspace
 
-- Improve the editor beyond the terminal-sized viewport.
-- Graphical document status, scrolling, selection, and file workflow.
-- Preserve the same FAT12 persistence and verification path.
+- Add Writer as a fifth native stacking application, launched from the root
+  menu or FileHound's Edit action rather than borrowing Terminal.
+- Derive visible rows and columns from the current client rectangle, keep the
+  caret in view, pan long lines, and support mouse caret placement.
+- Provide native Save, validated 8.3 Save As, status feedback, and a guarded
+  close for modified documents using the existing verified FAT12 write path.
+- Fix the shared clipped-glyph renderer so coordinates cannot replace source
+  characters after a window resize.
 
 ### V0.29 — low-resolution image viewing
 
@@ -384,3 +393,4 @@ journal records intent and rationale.
 | `fix V0.26.2 UI and add native FileHound` | Separated GUI text and number drawing from Terminal wrapping, brought every browser row into the translated window coordinate contract, and rebuilt Files as a native single-pane FileHound edition with a location strip, aligned Name/Type/Size columns, category accents, paging, item status, classic controls, and isolated repaint storage. | Correct the runtime layout failures at their shared rendering sources and make the primary document workflow polished and recognisably FileHound without importing Go, Win32, Linux, or nonfunctional controls. |
 | `add V0.27 live desktop status` | Silenced normal loader chatter until the persistent boot splash, added a CMOS-backed Australian clock, a right-aligned version/date/time block, a minimized-only restore taskbar, taskbar-aware workspace bounds, real application-state reporting, a rolling event-activity graph with one-second live recomposition, and a primary-branch M.I.L.O build/readme contract. | Make the native Fluxbox-like desktop more familiar and useful while keeping telemetry honest, the root workflow sparse, boot unmistakably M.I.L.O, and the implementation independent of Linux, Conky, an RTC service, a scheduler, or fake CPU statistics. |
 | `refine V0.27.1 splash and window resizing` | Added an RTC-backed minimum splash hold, a readable 0--120+ events/second graph, bounded bottom-right resize grips, client clipping, adaptive System/FileHound/Traits layouts, and a size-aware Terminal viewport. | Runtime proof showed that fast hardware hid the splash and ordinary input saturated the first graph scale; native resizing completes the expected classic window workflow without fake CPU telemetry or drawing outside application frames. |
+| `add V0.28 native Writer workspace` | Corrected clipped glyph emission, added a fifth resizable Writer window, routed FileHound Edit into it, added viewport scrolling and mouse caret placement, and connected Save, validated Save As, status feedback, and guarded close to the verified FAT12 path. | Runtime resizing exposed coordinate bytes being drawn as text, while useful document work required a native application rather than a terminal-shaped editor mode. |
