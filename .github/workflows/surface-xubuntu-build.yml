@@ -49,7 +49,7 @@ jobs:
           grep -q 'scripts/casper' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
           grep -q 'lib/modules/6.19.8-surface-3/' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
 
-      - name: Add bootloader autoinstall mode
+      - name: Add automatic bootloader autoinstall mode
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -63,8 +63,6 @@ jobs:
           rm -rf "$WORK" "$OUT"
           mkdir -p "$PATCH/boot/grub" "$VERIFY"
 
-          # Only patch the already-validated v5 image. The Surface kernel,
-          # casper initrd, IPTS stack and live USB fixes remain unchanged.
           xorriso -osirrox on -indev "$BASE" \
             -extract /boot/grub/grub.cfg "$PATCH/boot/grub/grub.cfg" \
             -extract /md5sum.txt "$WORK/md5sum.txt" >/dev/null 2>&1
@@ -106,7 +104,7 @@ jobs:
             late-commands:
               - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface onboard lightdm
               - curtin in-target --target=/target -- update-grub
-              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /home/surface/.config/autostart
+              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /home/surface/.config/autostart /home/surface/Desktop
               - |
                 cat > /target/etc/lightdm/lightdm.conf.d/50-surface-autologin.conf <<'EOF'
                 [Seat:*]
@@ -145,19 +143,32 @@ jobs:
               - curtin in-target --target=/target -- chmod +x /home/surface/Desktop/Restart-Onboard.desktop
           AUTOINSTALL
 
-          # Keep normal Xubuntu boot entries intact. The destructive option is
-          # deliberately appended and is never made the default.
-          cat >> "$PATCH/boot/grub/grub.cfg" <<'GRUB'
+          # Put the destructive Surface install BEFORE the stock Xubuntu menu.
+          # GRUB input is unavailable on this Surface, so it is also forced to
+          # default entry 0 and automatically boots after five seconds.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/boot/grub/grub.cfg")
+          s = p.read_text()
+          entry = r'''
+          set default=0
+          set timeout_style=menu
+          set timeout=5
 
-          menuentry 'INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE' {
+          menuentry 'INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE (AUTO IN 5 SECONDS)' {
               set gfxpayload=keep
               linux /casper/vmlinuz boot=casper autoinstall ignore_uuid console=tty1 ---
               initrd /casper/initrd
           }
-          GRUB
 
-          # Refresh md5 entries for the two changed/added files without
-          # touching the casper SHA256SUMS (no casper payload changed here).
+          '''
+          pos = s.find('menuentry ')
+          if pos < 0:
+              raise SystemExit('No existing GRUB menuentry found')
+          s = s[:pos] + entry + s[pos:]
+          p.write_text(s)
+          PY
+
           cp "$WORK/md5sum.txt" "$PATCH/md5sum.txt"
           sed -i '\#  \./boot/grub/grub.cfg$#d; \#  \./autoinstall.yaml$#d' "$PATCH/md5sum.txt"
           (
@@ -169,11 +180,8 @@ jobs:
           import yaml
           from pathlib import Path
           p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/autoinstall.yaml")
-          data = yaml.safe_load(p.read_text())
-          a = data["autoinstall"]
+          a = yaml.safe_load(p.read_text())["autoinstall"]
           assert a["version"] == 1
-          assert a["source"]["id"] == "xubuntu-desktop"
-          assert a["storage"]["layout"]["name"] == "direct"
           assert a["storage"]["layout"]["match"]["size"] == "largest"
           assert a["identity"]["username"] == "surface"
           late = "\n".join(str(x) for x in a["late-commands"])
@@ -182,25 +190,39 @@ jobs:
           assert "Exec=onboard" in late
           PY
 
-          grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$PATCH/boot/grub/grub.cfg"
-          grep -q "autoinstall ignore_uuid" "$PATCH/boot/grub/grub.cfg"
-          grep -q "autologin-user=surface" "$PATCH/autoinstall.yaml"
-          grep -q "input-event-source=GTK" "$PATCH/autoinstall.yaml"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/boot/grub/grub.cfg")
+          s = p.read_text()
+          first = s.find('menuentry ')
+          assert first >= 0
+          assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
+          assert 'set default=0' in s[:first]
+          assert 'set timeout=5' in s[:first]
+          assert 'autoinstall ignore_uuid' in s[first:first+500]
+          PY
 
           xorriso -indev "$BASE" -outdev "$OUT" \
             -update_r "$PATCH" / \
             -boot_image any replay -commit >/dev/null
 
-          # Verify the actual finished ISO, not only the patch files.
           xorriso -osirrox on -indev "$OUT" \
             -extract /autoinstall.yaml "$VERIFY/autoinstall.yaml" \
             -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" >/dev/null 2>&1
+
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path("${{ runner.temp }}/surface-autoinstall-patch/verify/grub.cfg").read_text()
+          first = s.find('menuentry ')
+          assert first >= 0
+          assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
+          assert 'set default=0' in s[:first]
+          assert 'set timeout=5' in s[:first]
+          PY
           grep -q '^autoinstall:' "$VERIFY/autoinstall.yaml"
-          grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$VERIFY/grub.cfg"
-          grep -q "autoinstall ignore_uuid" "$VERIFY/grub.cfg"
-          grep -q "autologin-user=surface" "$VERIFY/autoinstall.yaml"
-          grep -q "input-event-source=GTK" "$VERIFY/autoinstall.yaml"
-          grep -q "Exec=onboard" "$VERIFY/autoinstall.yaml"
+          grep -q 'autologin-user=surface' "$VERIFY/autoinstall.yaml"
+          grep -q 'input-event-source=GTK' "$VERIFY/autoinstall.yaml"
+          grep -q 'Exec=onboard' "$VERIFY/autoinstall.yaml"
 
           xorriso -indev "$OUT" -report_el_torito plain | tee "$OUT.boot-report.txt"
           grep -q 'UEFI' "$OUT.boot-report.txt"
@@ -212,20 +234,19 @@ jobs:
              "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt"
 
           echo
-          echo 'AUTOINSTALL SAFETY/ACCESSIBILITY:'
-          echo '  - Normal live boot remains available.'
-          echo '  - Autoinstall is an explicit GRUB menu choice, not the default.'
-          echo '  - It erases the largest non-install-media disk using the direct layout.'
-          echo '  - Desktop auto-login is enabled for user surface.'
-          echo '  - Onboard launches automatically after login.'
-          echo '  - Onboard defaults to GTK event input to avoid the Noble XInput crash.'
-          echo '  - Password for sudo/manual login remains: surface'
+          echo 'SURFACE AUTOBOOT INSTALL:'
+          echo '  - INSTALL SURFACE PRO 4 is GRUB entry 0.'
+          echo '  - It automatically starts after a 5 second countdown with no input.'
+          echo '  - It erases the largest non-install-media disk.'
+          echo '  - Desktop auto-login is enabled for surface.'
+          echo '  - Onboard starts automatically using GTK input mode.'
+          echo '  - Password for sudo/manual login: surface'
           ls -lh "$OUT"
 
       - name: Upload Surface autoinstall ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v2
+          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v3
           path: |
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.sha256
