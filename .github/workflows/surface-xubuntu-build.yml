@@ -1,0 +1,49 @@
+name: Surface Xubuntu ISO build
+
+on:
+  push:
+    branches:
+      - surface-xubuntu-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out build branch
+        uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          echo "Before cleanup:"
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker system prune -af || true
+          echo "After cleanup:"
+          df -h /
+
+      - name: Build Surface Pro 4 Xubuntu ISO
+        shell: bash
+        env:
+          SURFACE_BUILD_WORKDIR: ${{ runner.temp }}/surface-xubuntu-work
+        run: |
+          chmod +x surface-build/build-surface-xubuntu.sh
+          ./surface-build/build-surface-xubuntu.sh
+          df -h /
+
+      - name: Upload ready-to-flash ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash
+          path: |
+            xubuntu-24.04.4-surface-pro-4-amd64.iso
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.boot-report.txt
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
