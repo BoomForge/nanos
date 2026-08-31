@@ -45,9 +45,16 @@ jobs:
         shell: bash
         run: |
           cd base-artifact
-          sha256sum -c xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
-          grep -q 'scripts/casper' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
-          grep -q 'lib/modules/6.19.8-surface-3/' xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
+          ISO=xubuntu-24.04.4-surface-pro-4-amd64.iso
+          SHA="$ISO.sha256"
+          EXPECTED="$(awk 'NR==1 {print $1}' "$SHA")"
+          ACTUAL="$(sha256sum "$ISO" | awk '{print $1}')"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          test -n "$EXPECTED"
+          test "$ACTUAL" = "$EXPECTED"
+          grep -q 'scripts/casper' "$ISO.initrd-report.txt"
+          grep -q 'lib/modules/6.19.8-surface-3/' "$ISO.initrd-report.txt"
 
       - name: Add automatic bootloader autoinstall mode
         shell: bash
