@@ -1,0 +1,16 @@
+TEMPORARY MULTI-CLUSTER ARCHIVE TEST
+
+RECORD 01: The terminal completed its boot sequence and found the FAT12 volume.
+RECORD 02: The keyboard controller accepted ordinary keys and navigation keys.
+RECORD 03: A document was opened, changed, saved, closed, and opened once again.
+RECORD 04: The copy command created a separate file without sharing its cluster.
+RECORD 05: Rename changed the directory entry while leaving the contents intact.
+RECORD 06: Delete released the cluster and removed the visible directory entry.
+RECORD 07: This document intentionally crosses a 512-byte cluster boundary.
+RECORD 08: Type should continue reading through the FAT chain without stopping.
+RECORD 09: The editor should open this file even though it crosses two boundaries.
+RECORD 10: Page navigation and the live line, column, and byte status can be tested.
+
+All records in this document are temporary test material. They are not canon,
+they do not represent permanent system history, and they can be removed after
+the multi-cluster document pipeline has been verified.

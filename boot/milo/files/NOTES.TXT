@@ -1,0 +1,6 @@
+TEMPORARY M.I.L.O TEST DOCUMENT
+
+The editor can open this file, move between these lines,
+insert new words, remove characters, and save the result.
+
+This content is disposable and may be deleted later.

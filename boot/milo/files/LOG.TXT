@@ -1,0 +1,9 @@
+M.I.L.O TEST LOG
+
+BOOT: ONLINE
+VIDEO: ONLINE
+KEYBOARD: ONLINE
+FAT12: ONLINE
+EDITOR: ONLINE
+
+Technician note: percussive maintenance remains unverified.

@@ -1,0 +1,4 @@
+M.I.L.O FULL-FLOPPY TEST PASSED.
+
+This document begins beyond the original 48 KiB boot cache.
+If TYPE FARTEST.TXT displays this text, on-demand FAT12 sector reads are online.

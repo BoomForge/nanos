@@ -4,6 +4,28 @@ BUILD_DIR := build/$(ARCH)
 ISO_DIR := iso
 KERNEL := $(BUILD_DIR)/nanos.elf
 ISO := build/nanos-$(ARCH).iso
+MILO_BUILD_DIR := build/M.I.L.O
+MILO_STAGE1_OBJECT := $(MILO_BUILD_DIR)/stage1.o
+MILO_STAGE1 := $(MILO_BUILD_DIR)/stage1.bin
+MILO_STAGE2_OBJECT := $(MILO_BUILD_DIR)/stage2.o
+MILO_STAGE2 := $(MILO_BUILD_DIR)/stage2.bin
+MILO_STAGE2_MAX_BYTES := 8192
+MILO_KERNEL_OBJECT := $(MILO_BUILD_DIR)/kernel.o
+MILO_KERNEL := $(MILO_BUILD_DIR)/kernel.bin
+MILO_KERNEL_MAX_BYTES := 32768
+MILO_SPLASH_SOURCE := boot/milo/assets/milo-splash.ans
+MILO_SPLASH_TOOL := tools/build_milo_splash.py
+MILO_SPLASH := $(MILO_BUILD_DIR)/splash.bin
+MILO_FILES_DIR := boot/milo/files
+MILO_FILES := $(wildcard $(MILO_FILES_DIR)/*)
+MILO_FAT12_TOOL := tools/build_milo_fat12.py
+MILO_FAT12_ARGS := --place=FARTEST.TXT=130
+MILO_ROUTING_TEST := tools/test_milo_routing_contract.py
+MILO_STORAGE_TEST := tools/test_milo_storage_contract.py
+MILO_SHELL_TEST := tools/test_milo_shell_contract.py
+MILO_VERSION ?= 0.26.2
+MILO_FLOPPY := build/M.I.L.O-floppy-V$(MILO_VERSION).img
+PYTHON ?= python3
 INITRD_DIR := initrd
 INITRD := $(BUILD_DIR)/initrd.tar
 INITRD_FILES := $(shell find $(INITRD_DIR) -type f 2>/dev/null)
@@ -17,6 +39,7 @@ NANOS_BOOT_SELFTESTS ?= 0
 CC ?= gcc
 LD ?= ld
 OBJCOPY ?= objcopy
+NM ?= nm
 QEMU_I386 ?= qemu-system-i386
 QEMU_X86_64 ?= qemu-system-x86_64
 GRUB_MKRESCUE ?= grub-mkrescue
@@ -117,7 +140,9 @@ DEPS := $(OBJECTS:.o=.d) $(USERSPACE_OBJECTS:.o=.d)
 
 -include $(DEPS)
 
-.PHONY: all clean iso run run64 bochs check-tools check-iso-tools verify FORCE
+.PHONY: all clean iso run run64 bochs check-tools check-iso-tools verify \
+	milo-boot milo-floppy milo-install-hooks verify-milo-boot \
+	verify-milo-routing FORCE
 
 all: $(KERNEL)
 
@@ -126,6 +151,27 @@ iso: $(ISO)
 verify: $(KERNEL)
 	grub-file --is-x86-multiboot2 $(KERNEL)
 	readelf -h $(KERNEL) | sed -n '1,16p'
+
+milo-boot: $(MILO_STAGE1) $(MILO_STAGE2) $(MILO_KERNEL)
+
+milo-floppy: $(MILO_FLOPPY)
+
+milo-install-hooks:
+	git config core.hooksPath .githooks
+
+verify-milo-boot: $(MILO_STAGE1) $(MILO_STAGE2) $(MILO_KERNEL) $(MILO_FLOPPY)
+	test "$$(wc -c < $(MILO_STAGE1))" -eq 512
+	test "$$(od -An -tx1 -j510 -N2 $(MILO_STAGE1) | tr -d ' \n')" = "55aa"
+	test "$$(wc -c < $(MILO_STAGE2))" -le $(MILO_STAGE2_MAX_BYTES)
+	test "$$(wc -c < $(MILO_KERNEL))" -le $(MILO_KERNEL_MAX_BYTES)
+	test -z "$$($(NM) -u $(MILO_KERNEL_OBJECT))"
+	$(PYTHON) $(MILO_ROUTING_TEST)
+	$(PYTHON) $(MILO_STORAGE_TEST) $(MILO_FLOPPY) $(MILO_FILES_DIR) $(MILO_KERNEL)
+	$(PYTHON) $(MILO_SHELL_TEST) boot/milo/kernel.S boot/milo/shell.inc \
+		boot/milo/mouse.inc $(MILO_KERNEL)
+
+verify-milo-routing:
+	$(PYTHON) $(MILO_ROUTING_TEST)
 
 run: $(ISO)
 	$(QEMU) -cdrom $(ISO) -serial stdio -m 128M
@@ -145,6 +191,37 @@ check-iso-tools: check-tools
 	@command -v $(GRUB_MKSTANDALONE) >/dev/null
 	@command -v $(XORRISO) >/dev/null
 	@command -v $(TAR) >/dev/null
+
+$(MILO_STAGE1): boot/milo/stage1.S
+	@mkdir -p $(@D)
+	$(CC) -m32 -ffreestanding -c $< -o $(MILO_STAGE1_OBJECT)
+	$(OBJCOPY) -O binary -j .text $(MILO_STAGE1_OBJECT) $@
+	@test "$$(wc -c < $@)" -eq 512
+
+$(MILO_SPLASH): $(MILO_SPLASH_SOURCE) $(MILO_SPLASH_TOOL)
+	@mkdir -p $(@D)
+	$(PYTHON) $(MILO_SPLASH_TOOL) $(MILO_SPLASH_SOURCE) $@
+
+$(MILO_STAGE2): boot/milo/stage2.S $(MILO_SPLASH)
+	@mkdir -p $(@D)
+	$(CC) -m32 -ffreestanding -c $< -o $(MILO_STAGE2_OBJECT)
+	$(OBJCOPY) -O binary -j .text $(MILO_STAGE2_OBJECT) $@
+	@test "$$(wc -c < $@)" -le $(MILO_STAGE2_MAX_BYTES)
+
+$(MILO_KERNEL): boot/milo/kernel.S boot/milo/mouse.inc boot/milo/shell.inc
+	@mkdir -p $(@D)
+	$(CC) -m32 -ffreestanding -c $< -o $(MILO_KERNEL_OBJECT)
+	$(OBJCOPY) -O binary -j .text $(MILO_KERNEL_OBJECT) $@
+	@test "$$(wc -c < $@)" -le $(MILO_KERNEL_MAX_BYTES)
+
+$(MILO_FLOPPY): $(MILO_STAGE1) $(MILO_STAGE2) $(MILO_KERNEL) \
+		$(MILO_FAT12_TOOL) $(MILO_FILES)
+	@mkdir -p $(@D)
+	dd if=/dev/zero of=$@ bs=512 count=2880 status=none
+	dd if=$(MILO_STAGE1) of=$@ conv=notrunc status=none
+	dd if=$(MILO_STAGE2) of=$@ bs=512 seek=1 conv=notrunc status=none
+	dd if=$(MILO_KERNEL) of=$@ bs=512 seek=18 conv=notrunc status=none
+	$(PYTHON) $(MILO_FAT12_TOOL) $@ $(MILO_FILES_DIR) $(MILO_FAT12_ARGS)
 
 $(ISO): $(KERNEL) grub/standalone.cfg $(INITRD) | check-iso-tools
 	@rm -rf $(BUILD_DIR)/standalone
