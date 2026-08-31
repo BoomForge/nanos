@@ -47,7 +47,9 @@ bind_chroot_mounts(){
 unbind_chroot_mounts(){
   local root="$1"
   for m in run sys proc dev/pts dev etc/resolv.conf; do
-    mountpoint -q "$root/$m" && sudo umount -lf "$root/$m"
+    if mountpoint -q "$root/$m"; then
+      sudo umount -lf "$root/$m" || true
+    fi
   done
 }
 
