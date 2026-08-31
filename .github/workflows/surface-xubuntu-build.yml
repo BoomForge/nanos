@@ -27,7 +27,7 @@ jobs:
           echo "After cleanup:"
           df -h /
 
-      - name: Patch remaster for casper live-media UUID compatibility
+      - name: Patch remaster for robust Surface live USB boot
         shell: bash
         run: |
           python3 - <<'PY'
@@ -35,19 +35,72 @@ jobs:
           p = Path('surface-build/build-surface-xubuntu.sh')
           s = p.read_text()
 
-          marker = 'log "Rebuilding bootable BIOS/UEFI ISO"'
-          inject = r'''log "Allowing remastered casper initrd to accept the live USB medium"
-          for cfg in "$ISO/boot/grub/grub.cfg" "$ISO/boot/grub/loopback.cfg"; do
-            [[ -f "$cfg" ]] || continue
-            sed -i -E 's/(boot=casper)([[:space:]])/\1 ignore_uuid\2/g' "$cfg"
-          done
-          grep -Rqs 'boot=casper ignore_uuid' "$ISO/boot/grub" \
-            || die "Failed to add ignore_uuid to casper boot arguments"
+          # Force the drivers required to see a DD-written live USB on the
+          # Surface Pro 4 into the Surface-kernel initrd. This avoids relying
+          # on the GitHub runner's detected hardware when mkinitramfs decides
+          # which modules to include.
+          initrd_marker = 'log "Building a Surface-kernel initrd WITH Ubuntu casper"'
+          initrd_inject = r'''log "Forcing Surface live-USB storage/filesystem drivers into initrd"
+          sudo tee -a "$FULL_MERGED/etc/initramfs-tools/modules" >/dev/null <<'MODULES'
+          xhci_pci
+          xhci_hcd
+          usb_storage
+          uas
+          sd_mod
+          squashfs
+          loop
+          isofs
+          MODULES
 
           '''
-          if marker not in s:
+          if initrd_marker not in s:
+              raise SystemExit('Could not find initrd build marker in remaster script')
+          s = s.replace(initrd_marker, initrd_inject + initrd_marker, 1)
+
+          # Validate the critical live-media modules before the ISO is built.
+          validation_marker = 'log "Adding Surface diagnostics to the live desktop"'
+          validation_inject = r'''log "Validating critical live-USB modules in Surface initrd"
+          INITRD_LIST="$WORKDIR/surface-initrd-files.txt"
+          lsinitramfs "$LIVE_INITRD" > "$INITRD_LIST"
+          for mod in xhci-pci usb-storage uas.ko squashfs.ko loop.ko isofs.ko; do
+            grep -q "$mod" "$INITRD_LIST" || die "Surface initrd missing required live-USB module: $mod"
+          done
+
+          '''
+          if validation_marker not in s:
+              raise SystemExit('Could not find initrd validation marker in remaster script')
+          s = s.replace(validation_marker, validation_inject + validation_marker, 1)
+
+          # The remastered initrd does not share the stock image's embedded
+          # casper UUID. Add ignore_uuid to every GRUB linux/vmlinuz line,
+          # regardless of the exact argument layout used by Xubuntu 24.04.4.
+          rebuild_marker = 'log "Rebuilding bootable BIOS/UEFI ISO"'
+          grub_inject = r'''log "Allowing remastered casper initrd to accept the live USB medium"
+          for cfg in "$ISO/boot/grub/grub.cfg" "$ISO/boot/grub/loopback.cfg"; do
+            [[ -f "$cfg" ]] || continue
+            tmp="${cfg}.surface"
+            while IFS= read -r line || [[ -n "$line" ]]; do
+              if [[ "$line" =~ ^[[:space:]]*linux ]] && [[ "$line" == *vmlinuz* ]] && [[ "$line" != *ignore_uuid* ]]; then
+                if [[ "$line" == *" ---"* ]]; then
+                  line="${line/ ---/ ignore_uuid ---}"
+                else
+                  line="$line ignore_uuid"
+                fi
+              fi
+              printf '%s\n' "$line"
+            done < "$cfg" > "$tmp"
+            mv "$tmp" "$cfg"
+          done
+          grep -RqsE '^[[:space:]]*linux.*vmlinuz.*ignore_uuid' "$ISO/boot/grub" \
+            || die "Failed to add ignore_uuid to GRUB live boot lines"
+
+          '''
+          if rebuild_marker not in s:
               raise SystemExit('Could not find ISO rebuild marker in remaster script')
-          s = s.replace(marker, inject + marker, 1)
+          s = s.replace(rebuild_marker, grub_inject + rebuild_marker, 1)
+
+          # Preserve the stock Xubuntu ISO volume ID because casper uses live
+          # media identity during discovery. The first custom builds changed it.
           s = s.replace(' -update_r "$ISO" / -boot_image any replay -volid XUBUNTU_SURFACE -commit >/dev/null',
                         ' -update_r "$ISO" / -boot_image any replay -commit >/dev/null')
           p.write_text(s)
@@ -89,7 +142,7 @@ jobs:
       - name: Upload ready-to-flash ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v3
+          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v4
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
