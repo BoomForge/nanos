@@ -64,8 +64,7 @@ jobs:
           mkdir -p "$PATCH/boot/grub" "$VERIFY"
 
           # Only patch the already-validated v5 image. The Surface kernel,
-          # casper initrd, IPTS stack and live USB fixes remain byte-for-byte
-          # unchanged.
+          # casper initrd, IPTS stack and live USB fixes remain unchanged.
           xorriso -osirrox on -indev "$BASE" \
             -extract /boot/grub/grub.cfg "$PATCH/boot/grub/grub.cfg" \
             -extract /md5sum.txt "$WORK/md5sum.txt" >/dev/null 2>&1
@@ -105,8 +104,45 @@ jobs:
               install: false
             shutdown: reboot
             late-commands:
-              - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface
+              - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface onboard lightdm
               - curtin in-target --target=/target -- update-grub
+              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /home/surface/.config/autostart
+              - |
+                cat > /target/etc/lightdm/lightdm.conf.d/50-surface-autologin.conf <<'EOF'
+                [Seat:*]
+                autologin-user=surface
+                autologin-user-timeout=0
+                user-session=xubuntu
+                EOF
+              - |
+                cat > /target/etc/onboard/onboard-defaults.conf <<'EOF'
+                [keyboard]
+                input-event-source=GTK
+                touch-input=none
+                EOF
+              - |
+                cat > /target/home/surface/.config/autostart/onboard.desktop <<'EOF'
+                [Desktop Entry]
+                Type=Application
+                Name=Onboard On-Screen Keyboard
+                Comment=Automatically start the touch keyboard
+                Exec=onboard
+                Terminal=false
+                X-GNOME-Autostart-enabled=true
+                X-XFCE-Autostart-Override=true
+                EOF
+              - |
+                cat > /target/home/surface/Desktop/Restart-Onboard.desktop <<'EOF'
+                [Desktop Entry]
+                Type=Application
+                Name=Restart On-Screen Keyboard
+                Comment=Restart Onboard if it was closed
+                Exec=sh -c 'pkill onboard || true; sleep 1; onboard'
+                Icon=input-keyboard
+                Terminal=false
+                EOF
+              - curtin in-target --target=/target -- chown -R surface:surface /home/surface/.config /home/surface/Desktop
+              - curtin in-target --target=/target -- chmod +x /home/surface/Desktop/Restart-Onboard.desktop
           AUTOINSTALL
 
           # Keep normal Xubuntu boot entries intact. The destructive option is
@@ -140,10 +176,16 @@ jobs:
           assert a["storage"]["layout"]["name"] == "direct"
           assert a["storage"]["layout"]["match"]["size"] == "largest"
           assert a["identity"]["username"] == "surface"
+          late = "\n".join(str(x) for x in a["late-commands"])
+          assert "autologin-user=surface" in late
+          assert "input-event-source=GTK" in late
+          assert "Exec=onboard" in late
           PY
 
           grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$PATCH/boot/grub/grub.cfg"
           grep -q "autoinstall ignore_uuid" "$PATCH/boot/grub/grub.cfg"
+          grep -q "autologin-user=surface" "$PATCH/autoinstall.yaml"
+          grep -q "input-event-source=GTK" "$PATCH/autoinstall.yaml"
 
           xorriso -indev "$BASE" -outdev "$OUT" \
             -update_r "$PATCH" / \
@@ -156,6 +198,9 @@ jobs:
           grep -q '^autoinstall:' "$VERIFY/autoinstall.yaml"
           grep -q "INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE" "$VERIFY/grub.cfg"
           grep -q "autoinstall ignore_uuid" "$VERIFY/grub.cfg"
+          grep -q "autologin-user=surface" "$VERIFY/autoinstall.yaml"
+          grep -q "input-event-source=GTK" "$VERIFY/autoinstall.yaml"
+          grep -q "Exec=onboard" "$VERIFY/autoinstall.yaml"
 
           xorriso -indev "$OUT" -report_el_torito plain | tee "$OUT.boot-report.txt"
           grep -q 'UEFI' "$OUT.boot-report.txt"
@@ -167,17 +212,20 @@ jobs:
              "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt"
 
           echo
-          echo 'AUTOINSTALL SAFETY:'
+          echo 'AUTOINSTALL SAFETY/ACCESSIBILITY:'
           echo '  - Normal live boot remains available.'
           echo '  - Autoinstall is an explicit GRUB menu choice, not the default.'
           echo '  - It erases the largest non-install-media disk using the direct layout.'
-          echo '  - Temporary login after install: surface / surface'
+          echo '  - Desktop auto-login is enabled for user surface.'
+          echo '  - Onboard launches automatically after login.'
+          echo '  - Onboard defaults to GTK event input to avoid the Noble XInput crash.'
+          echo '  - Password for sudo/manual login remains: surface'
           ls -lh "$OUT"
 
       - name: Upload Surface autoinstall ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v1
+          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v2
           path: |
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.sha256
