@@ -56,25 +56,34 @@ jobs:
           grep -q 'scripts/casper' "$ISO.initrd-report.txt"
           grep -q 'lib/modules/6.19.8-surface-3/' "$ISO.initrd-report.txt"
 
-      - name: Add automatic bootloader autoinstall mode
+      - name: Build zero-input Surface autoinstall ISO
         shell: bash
         run: |
           set -Eeuo pipefail
 
           BASE="$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso"
           OUT="$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso"
-          WORK="$RUNNER_TEMP/surface-autoinstall-patch"
-          PATCH="$WORK/patch"
+          WORK="$RUNNER_TEMP/surface-autoinstall-v4"
+          TREE="$WORK/iso-tree"
           VERIFY="$WORK/verify"
 
           rm -rf "$WORK" "$OUT"
-          mkdir -p "$PATCH/boot/grub" "$VERIFY"
+          mkdir -p "$TREE" "$VERIFY"
 
-          xorriso -osirrox on -indev "$BASE" \
-            -extract /boot/grub/grub.cfg "$PATCH/boot/grub/grub.cfg" \
-            -extract /md5sum.txt "$WORK/md5sum.txt" >/dev/null 2>&1
+          echo 'Extracting the COMPLETE validated v5 ISO tree...'
+          xorriso -osirrox on -indev "$BASE" -extract / "$TREE" >/dev/null 2>&1
+          chmod -R u+w "$TREE"
 
-          cat > "$PATCH/autoinstall.yaml" <<'AUTOINSTALL'
+          # Refuse to continue unless the critical boot/live payload from v5 is
+          # present in the complete tree. This prevents a partial-tree update
+          # from ever deleting EFI, casper, or the Surface kernel again.
+          test -f "$TREE/casper/vmlinuz"
+          test -f "$TREE/casper/initrd"
+          test -d "$TREE/EFI/BOOT"
+          test -f "$TREE/boot/grub/grub.cfg"
+          test -f "$TREE/md5sum.txt"
+
+          cat > "$TREE/autoinstall.yaml" <<'AUTOINSTALL'
           autoinstall:
             version: 1
             interactive-sections: []
@@ -86,7 +95,6 @@ jobs:
               variant: ""
             timezone: Australia/Hobart
             source:
-              id: xubuntu-desktop
               search_drivers: false
             apt:
               geoip: false
@@ -111,7 +119,7 @@ jobs:
             late-commands:
               - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface onboard lightdm
               - curtin in-target --target=/target -- update-grub
-              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /home/surface/.config/autostart /home/surface/Desktop
+              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /usr/local/bin /home/surface/.config/autostart /home/surface/Desktop
               - |
                 cat > /target/etc/lightdm/lightdm.conf.d/50-surface-autologin.conf <<'EOF'
                 [Seat:*]
@@ -126,12 +134,20 @@ jobs:
                 touch-input=none
                 EOF
               - |
+                cat > /target/usr/local/bin/surface-onboard <<'EOF'
+                #!/bin/sh
+                gsettings set org.onboard.keyboard input-event-source 'GTK' || true
+                gsettings set org.onboard.keyboard touch-input 'none' || true
+                gsettings set org.onboard.keyboard key-synth 'XTest' || true
+                exec onboard
+                EOF
+              - |
                 cat > /target/home/surface/.config/autostart/onboard.desktop <<'EOF'
                 [Desktop Entry]
                 Type=Application
                 Name=Onboard On-Screen Keyboard
                 Comment=Automatically start the touch keyboard
-                Exec=onboard
+                Exec=/usr/local/bin/surface-onboard
                 Terminal=false
                 X-GNOME-Autostart-enabled=true
                 X-XFCE-Autostart-Override=true
@@ -142,23 +158,24 @@ jobs:
                 Type=Application
                 Name=Restart On-Screen Keyboard
                 Comment=Restart Onboard if it was closed
-                Exec=sh -c 'pkill onboard || true; sleep 1; onboard'
+                Exec=sh -c 'pkill onboard || true; sleep 1; /usr/local/bin/surface-onboard'
                 Icon=input-keyboard
                 Terminal=false
                 EOF
+              - curtin in-target --target=/target -- chmod +x /usr/local/bin/surface-onboard /home/surface/Desktop/Restart-Onboard.desktop
               - curtin in-target --target=/target -- chown -R surface:surface /home/surface/.config /home/surface/Desktop
-              - curtin in-target --target=/target -- chmod +x /home/surface/Desktop/Restart-Onboard.desktop
           AUTOINSTALL
 
-          # Put the destructive Surface install BEFORE the stock Xubuntu menu.
-          # GRUB input is unavailable on this Surface, so it is also forced to
-          # default entry 0 and automatically boots after five seconds.
+          # Make our destructive Surface installer the unconditional FIRST GRUB
+          # entry. Remove any stock default/timeout assignments so nothing later
+          # in grub.cfg can override the five-second autoboot.
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/boot/grub/grub.cfg")
+          import re
+          p = Path("${{ runner.temp }}/surface-autoinstall-v4/iso-tree/boot/grub/grub.cfg")
           s = p.read_text()
-          entry = r'''
-          set default=0
+          s = re.sub(r'(?m)^\s*set\s+(?:default|timeout|timeout_style)=.*\n?', '', s)
+          entry = r'''set default=0
           set timeout_style=menu
           set timeout=5
 
@@ -169,38 +186,33 @@ jobs:
           }
 
           '''
-          pos = s.find('menuentry ')
-          if pos < 0:
-              raise SystemExit('No existing GRUB menuentry found')
-          s = s[:pos] + entry + s[pos:]
-          p.write_text(s)
+          p.write_text(entry + s)
           PY
 
-          cp "$WORK/md5sum.txt" "$PATCH/md5sum.txt"
-          sed -i '\#  \./boot/grub/grub.cfg$#d; \#  \./autoinstall.yaml$#d' "$PATCH/md5sum.txt"
+          # Refresh only the MD5 entries changed by this build.
+          sed -i '\#  \./boot/grub/grub.cfg$#d; \#  \./autoinstall.yaml$#d' "$TREE/md5sum.txt"
           (
-            cd "$PATCH"
+            cd "$TREE"
             md5sum ./boot/grub/grub.cfg ./autoinstall.yaml
-          ) >> "$PATCH/md5sum.txt"
+          ) >> "$TREE/md5sum.txt"
 
+          echo 'Validating configuration before ISO rebuild...'
           python3 - <<'PY'
           import yaml
           from pathlib import Path
-          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/autoinstall.yaml")
-          a = yaml.safe_load(p.read_text())["autoinstall"]
-          assert a["version"] == 1
-          assert a["storage"]["layout"]["match"]["size"] == "largest"
-          assert a["identity"]["username"] == "surface"
-          late = "\n".join(str(x) for x in a["late-commands"])
-          assert "autologin-user=surface" in late
-          assert "input-event-source=GTK" in late
-          assert "Exec=onboard" in late
-          PY
+          root = Path("${{ runner.temp }}/surface-autoinstall-v4/iso-tree")
+          a = yaml.safe_load((root / 'autoinstall.yaml').read_text())['autoinstall']
+          assert a['version'] == 1
+          assert a['storage']['layout']['name'] == 'direct'
+          assert a['storage']['layout']['match']['size'] == 'largest'
+          assert a['identity']['username'] == 'surface'
+          assert 'id' not in a['source']
+          late = '\n'.join(str(x) for x in a['late-commands'])
+          assert 'autologin-user=surface' in late
+          assert 'surface-onboard' in late
+          assert "input-event-source 'GTK'" in late
 
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("${{ runner.temp }}/surface-autoinstall-patch/patch/boot/grub/grub.cfg")
-          s = p.read_text()
+          s = (root / 'boot/grub/grub.cfg').read_text()
           first = s.find('menuentry ')
           assert first >= 0
           assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
@@ -209,51 +221,61 @@ jobs:
           assert 'autoinstall ignore_uuid' in s[first:first+500]
           PY
 
+          echo 'Rebuilding from the COMPLETE tree and replaying v5 boot structure...'
           xorriso -indev "$BASE" -outdev "$OUT" \
-            -update_r "$PATCH" / \
+            -update_r "$TREE" / \
             -boot_image any replay -commit >/dev/null
 
+          echo 'Validating actual finished ISO contents...'
           xorriso -osirrox on -indev "$OUT" \
             -extract /autoinstall.yaml "$VERIFY/autoinstall.yaml" \
-            -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" >/dev/null 2>&1
+            -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" \
+            -extract /casper/vmlinuz "$VERIFY/vmlinuz" \
+            -extract /casper/initrd "$VERIFY/initrd" >/dev/null 2>&1
+          test -s "$VERIFY/vmlinuz"
+          test -s "$VERIFY/initrd"
 
           python3 - <<'PY'
+          import yaml
           from pathlib import Path
-          s = Path("${{ runner.temp }}/surface-autoinstall-patch/verify/grub.cfg").read_text()
+          v = Path("${{ runner.temp }}/surface-autoinstall-v4/verify")
+          a = yaml.safe_load((v / 'autoinstall.yaml').read_text())['autoinstall']
+          assert a['identity']['username'] == 'surface'
+          assert a['storage']['layout']['match']['size'] == 'largest'
+          s = (v / 'grub.cfg').read_text()
           first = s.find('menuentry ')
           assert first >= 0
           assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
           assert 'set default=0' in s[:first]
           assert 'set timeout=5' in s[:first]
+          assert 'autoinstall ignore_uuid' in s[first:first+500]
           PY
-          grep -q '^autoinstall:' "$VERIFY/autoinstall.yaml"
-          grep -q 'autologin-user=surface' "$VERIFY/autoinstall.yaml"
-          grep -q 'input-event-source=GTK' "$VERIFY/autoinstall.yaml"
-          grep -q 'Exec=onboard' "$VERIFY/autoinstall.yaml"
 
           xorriso -indev "$OUT" -report_el_torito plain | tee "$OUT.boot-report.txt"
           grep -q 'UEFI' "$OUT.boot-report.txt"
           grep -q 'BIOS' "$OUT.boot-report.txt"
           sha256sum "$OUT" | tee "$OUT.sha256"
 
-          cp "$PATCH/autoinstall.yaml" "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall.yaml"
+          cp "$TREE/autoinstall.yaml" "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall.yaml"
           cp "$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt" \
              "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt"
 
           echo
-          echo 'SURFACE AUTOBOOT INSTALL:'
+          echo 'SURFACE AUTOBOOT INSTALL V4:'
+          echo '  - Complete validated v5 ISO tree preserved.'
           echo '  - INSTALL SURFACE PRO 4 is GRUB entry 0.'
-          echo '  - It automatically starts after a 5 second countdown with no input.'
+          echo '  - It automatically starts after 5 seconds with no input.'
           echo '  - It erases the largest non-install-media disk.'
+          echo '  - Xubuntu chooses the default source from its own install-sources metadata.'
           echo '  - Desktop auto-login is enabled for surface.'
-          echo '  - Onboard starts automatically using GTK input mode.'
+          echo '  - Onboard starts through a wrapper that forces GTK input mode.'
           echo '  - Password for sudo/manual login: surface'
           ls -lh "$OUT"
 
       - name: Upload Surface autoinstall ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v3
+          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v4
           path: |
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso
             xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.sha256
