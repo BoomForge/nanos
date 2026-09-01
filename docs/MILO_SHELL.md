@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.29 extends the accepted V0.26 native root desktop. Its interaction model
+V0.29.1 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -30,6 +30,8 @@ remains owned by the custom BIOS loader and direct assembly kernel.
   complete menu remains visible.
 - The compact menu opens System, FileHound, Traits, Terminal, Writer, or the
   Pixel Viewer. Up/Down selects, Enter launches/restores, and Esc closes it.
+- `Alt+F9` minimizes the focused application and `Alt+F4` closes it. Writer
+  continues to guard unsaved work through its existing second-close flow.
 - Clicking an application entry opens or restores its independent window and
   closes the menu. Clicking elsewhere dismisses it.
 - Moving across menu entries changes the highlighted row only when a boundary
@@ -44,7 +46,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.29` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.29.1` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -252,6 +254,6 @@ M16 validation/rendering, palette data, and cursor storage.
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.29 provides:
+V0.29.1 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -34,7 +34,8 @@ V0.29 provides:
   images, including nearest-neighbour display, palette inspection, dimensions,
   and explicit invalid/unsupported/load errors;
 - a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
-  keyboard FileHound browsing, and a 30-entry command history; and
+  keyboard FileHound browsing, `Alt+F9` minimize, `Alt+F4` guarded close, and a
+  30-entry command history; and
 - Nyx-derived deterministic pattern and trait learning without phrase storage.
 
 The complete scope, architectural boundaries, roadmap, and commit rationale
@@ -57,13 +58,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.29.img
+build/M.I.L.O-floppy-V0.29.1.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -78,6 +79,8 @@ date and time. M.I.L.O contains no network time client or timezone database.
 
 - Press `F1` or right-click the root desktop to open applications. Use
   Up/Down and Enter to launch, or Esc to close the menu.
+- Press `Alt+F9` to minimize the focused window or `Alt+F4` to close it. An
+  unsaved Writer document retains its existing second-close confirmation.
 - Minimize a window to place it on the taskbar; click its button to restore it.
 - Drag a non-maximized window's bottom-right grip to resize it.
 - Open Writer directly or choose Edit in FileHound for native document work.

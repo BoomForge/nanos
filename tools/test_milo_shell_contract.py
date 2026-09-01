@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.29 native desktop and Pixel Viewer."""
+"""Static and binary checks for the V0.29.1 keyboard desktop and viewer."""
 
 from pathlib import Path
 import re
@@ -81,13 +81,13 @@ def main():
         b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.29",
+        b"M.I.L.O V0.29.1",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.29",
+        b"M.I.L.O VERSION 0.29.1",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
@@ -150,11 +150,11 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $904, %eax\n    movl $708, %edx",
+        "movl $888, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 904 + len("M.I.L.O V0.29") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.29.1") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Six independent native application windows retain focus, stacking,
@@ -371,8 +371,21 @@ def main():
         "call gui_keyboard_file_previous",
         "call gui_keyboard_file_next",
         "call gui_action_open",
+        "cmpb $0xb8, %al\n    je keyboard_alt_released",
+        "cmpb $0x38, %al\n    je keyboard_alt_pressed",
+        "cmpb $0x3e, %al\n    je keyboard_window_close",
+        "cmpb $0x43, %al\n    je keyboard_window_minimize",
+        "call wm_keyboard_close_active",
+        "call wm_keyboard_minimize_active",
+        "alt_pressed: .byte 0",
     ):
         require(kernel_source, fragment)
+    for fragment in (
+        "wm_keyboard_minimize_active:",
+        "wm_keyboard_close_active:",
+        "cmpl $WM_COUNT, %eax\n    jae wm_keyboard_window_complete",
+    ):
+        require(shell_source, fragment)
 
     # V0.29 adds a read-only sixth application for the compact native M16 V1
     # format. Its dedicated workspace cannot overwrite Writer's document
@@ -550,8 +563,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.29 desktop contract: %d-byte kernel, no-blank pointer, "
-        "keyboard shell, formatted Writer, FileHound, M16 viewer OK"
+        "M.I.L.O V0.29.1 desktop contract: %d-byte kernel, no-blank pointer, "
+        "keyboard window controls, formatted Writer, FileHound, M16 viewer OK"
         % len(kernel)
     )
 

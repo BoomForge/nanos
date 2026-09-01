@@ -1097,7 +1097,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $904, %eax
+    movl $888, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -3113,6 +3113,23 @@ wm_focus_editor_open:
 wm_focus_editor_complete:
     ret
 
+/* Standard keyboard-only window controls. Ignore the root desktop; Writer's
+ * existing guarded close path still requires confirmation when it is dirty. */
+wm_keyboard_minimize_active:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_active - _start), %eax
+    cmpl $WM_COUNT, %eax
+    jae wm_keyboard_window_complete
+    jmp wm_minimize_window
+
+wm_keyboard_close_active:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_active - _start), %eax
+    cmpl $WM_COUNT, %eax
+    jae wm_keyboard_window_complete
+    jmp wm_close_window
+
+wm_keyboard_window_complete:
+    ret
+
 wm_minimize_window:
     movzbl (KERNEL_LOAD_ADDRESS + wm_flags - _start)(,%eax), %edx
     orb $WM_FLAG_MINIMIZED, %dl
@@ -4319,7 +4336,7 @@ gui_window_image_caption: .asciz "M.I.L.O PIXEL VIEWER"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.29"
+gui_overlay_version: .asciz "0.29.1"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -4347,7 +4364,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "F1 // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.29"
+gui_taskbar_version: .asciz "M.I.L.O V0.29.1"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -4384,7 +4401,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.29"
+gui_version_status: .asciz "KERNEL   0.29.1"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"

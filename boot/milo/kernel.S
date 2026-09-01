@@ -114,11 +114,22 @@ keyboard_wait:
     je keyboard_shift_released
     cmpb $0x9d, %al
     je keyboard_control_released
+    cmpb $0xb8, %al
+    je keyboard_alt_released
 
     cmpb $0, (KERNEL_LOAD_ADDRESS + extended_prefix - _start)
     jne keyboard_extended
     testb $0x80, %al
     jnz keyboard_poll
+    cmpb $0x38, %al
+    je keyboard_alt_pressed
+    cmpb $0, (KERNEL_LOAD_ADDRESS + alt_pressed - _start)
+    je keyboard_test_menu_shortcut
+    cmpb $0x3e, %al
+    je keyboard_window_close
+    cmpb $0x43, %al
+    je keyboard_window_minimize
+keyboard_test_menu_shortcut:
     cmpb $0x3b, %al
     je keyboard_menu_toggle
     cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
@@ -245,6 +256,14 @@ keyboard_character_ready:
 
 keyboard_menu_toggle:
     call wm_keyboard_toggle_menu
+    jmp keyboard_poll
+
+keyboard_window_close:
+    call wm_keyboard_close_active
+    jmp keyboard_poll
+
+keyboard_window_minimize:
+    call wm_keyboard_minimize_active
     jmp keyboard_poll
 
 keyboard_menu_key:
@@ -402,6 +421,14 @@ keyboard_control_pressed:
 
 keyboard_control_released:
     movb $0, (KERNEL_LOAD_ADDRESS + control_pressed - _start)
+    jmp keyboard_poll
+
+keyboard_alt_pressed:
+    movb $1, (KERNEL_LOAD_ADDRESS + alt_pressed - _start)
+    jmp keyboard_poll
+
+keyboard_alt_released:
+    movb $0, (KERNEL_LOAD_ADDRESS + alt_pressed - _start)
     jmp keyboard_poll
 
 keyboard_escape:
@@ -4386,7 +4413,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.29\n"
+version_message: .asciz "M.I.L.O VERSION 0.29.1\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4676,6 +4703,7 @@ shift_pressed: .byte 0
 caps_enabled: .byte 0
 extended_prefix: .byte 0
 control_pressed: .byte 0
+alt_pressed: .byte 0
 editor_active: .byte 0
 editor_dirty: .byte 0
 editor_render_character: .byte 0

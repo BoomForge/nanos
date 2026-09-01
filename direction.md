@@ -176,9 +176,12 @@ cursor buffer for a no-blank fast-motion handoff, anchors Writer selection at
 the pressed cell, and makes the shell launch workflow keyboard accessible with
 F1, arrows, Enter, and Escape. It also adds the sixth native application: a
 read-only Pixel Viewer for the compact M16 V1 indexed format. FileHound can
-identify and open M16 files, the bundled 96x64 test image exercises all sixteen
+identify and open M16 files, the bundled 96x64 test image exposes all sixteen
 palette entries, and the viewer reports invalid, unsupported, oversized, and
 failed FAT12 reads without disturbing an open Writer document.
+**V0.29.1** completes the top-level keyboard workflow with `Alt+F9` minimizing
+the focused application and `Alt+F4` closing it through the same guarded path
+as the title-bar control. Dirty Writer documents therefore remain protected.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -186,8 +189,8 @@ failed FAT12 reads without disturbing an open Writer document.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.29 candidate kernel is 37,751 bytes; 48 KiB is reserved for controlled
-  growth, leaving 11,401 bytes in the current kernel region.
+- The V0.29.1 candidate kernel is 37,871 bytes; 48 KiB is reserved for
+  controlled growth, leaving 11,281 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
@@ -396,12 +399,54 @@ contract rather than compensating with per-screen coordinate offsets.
 - Add F1/arrow/Enter/Escape root-menu control and keyboard FileHound navigation,
   while correcting fast pointer handoff and mouse-selection anchoring.
 
+### V0.29.1 — complete keyboard window control
+
+- Minimize the focused native application with `Alt+F9`.
+- Close the focused application with `Alt+F4` while retaining Writer's guarded
+  second-close requirement for unsaved documents.
+- Ignore both shortcuts safely when the root desktop has no focused window.
+
 ### V0.30 — pixel image editing
 
-- Pencil, eraser, palette selection, simple fills, and verified saving.
-- Operate within strict dimensions and memory limits suitable for the appliance.
+- Turn Pixel Viewer into a compact Paint-like workspace with pencil, eraser,
+  palette selection, colour picker, fill, line, rectangle, zoom, and one bounded
+  undo state.
+- Add New, Save, and Save As through the verified FAT12 path while keeping M16
+  as the small lossless editable working format.
+- Keep dimensions and memory limits strict enough for the dedicated appliance.
 
-### V0.31 — sound and richer M.I.L.O state
+### V0.31 — image interchange and Mavica import
+
+- Add uncompressed BMP read/write first because it requires little codec code
+  and gives the editor a widely readable lossless interchange format.
+- Add read-only baseline JPEG import for Mavica photographs, deliberately
+  excluding progressive and uncommon JPEG modes at first. Decode into the
+  bounded indexed workspace and save edits as M16 or BMP.
+- Measure PNG decoding and JPEG encoding as optional modules rather than
+  assuming either is small. Do not consume the remaining kernel budget merely
+  to claim a file extension.
+
+### V0.32 — deeper deterministic M.I.L.O and terminal
+
+- Expand Nyx-derived intent routing, bounded typo recovery, structural trait
+  learning, canon response selection, and transparent explanations of actions.
+- Grow the command environment with discoverable help, aliases or macros,
+  stronger navigation and file tools, script launching, and explicit errors.
+- Preserve deterministic, offline behaviour and never store operator sentences
+  as learned personality data.
+
+### V0.33 — in-system application development
+
+- Define a tiny documented application ABI for windows, drawing, keyboard,
+  files, and lifecycle events instead of allowing applications to depend on
+  arbitrary internal kernel labels.
+- Add a compact interpreted or bytecode language, assembler/compiler, loader,
+  and `run` command so source can be written in Writer and executed in M.I.L.O.
+- Ship small example applications that can be rebuilt inside the OS. A full C
+  toolchain and unrestricted native kernel code are explicitly not the first
+  target because they would be much larger and less recoverable.
+
+### V0.34 — sound and richer M.I.L.O state
 
 - Small PC-speaker or similarly minimal sound cues.
 - Ring states for idle, activity, success, warning, and M.I.L.O interaction.
@@ -478,3 +523,4 @@ journal records intent and rationale.
 | `add V0.28.3 Writer selection and layout` | Added automatic `.TXT` normalization, visible keyboard/mouse selection, selection-aware styles, persistent Left/Center/Right/Justified paragraph layout, and RAM-backed Writer-region presentation. | Runtime use showed extensionless Save As failure, no post-entry styling or alignment, and minor incremental redraw flicker; these changes make Writer useful without importing a document framework. |
 | `stabilize V0.28.4 pointer and paragraph flow` | Staged PS/2 coordinates before cursor erasure, redrew inside the packet handler, skipped same-cell Writer drag repaint, and made Enter persist the active paragraph alignment on the next line. | Runtime verification showed severe residual pointer flicker and alignment reverting to left after a paragraph break; both faults were in state-transition timing rather than the visible controls. |
 | `add V0.29 keyboard shell and Pixel Viewer` | Added a no-blank fast-pointer handoff, corrected Writer drag anchoring, exposed the application menu and FileHound through the keyboard, and introduced a sixth resizable M16 V1 image-viewer window with a separate 8 KiB buffer, palette inspection, validation, errors, and a generated 96x64 fixture. | Complete the requested keyboard-first workflow, resolve the two remaining input defects, and begin the planned low-resolution image workstation without importing an image framework or risking open document data. |
+| `complete V0.29.1 keyboard window control` | Added standard `Alt+F9` minimize and `Alt+F4` close shortcuts for the focused application, retained Writer's dirty-document guard, and reordered the roadmap around native image editing, Mavica-oriented interchange, deterministic M.I.L.O/terminal expansion, and in-system application development. | Finish genuine keyboard-only desktop control and record the newly agreed priorities before the image editor begins. |
