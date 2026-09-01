@@ -168,7 +168,17 @@ still disappeared for too much of each movement packet and that Enter reset a
 new paragraph to left alignment. **V0.28.4** stages new pointer coordinates
 before erasing the old cursor, redraws before leaving the packet handler,
 suppresses same-cell selection repaint, and writes the current alignment marker
-after a newly inserted paragraph break.
+after a newly inserted paragraph break. Further runtime use showed that rapid
+non-overlapping pointer movement could still expose the short erase/redraw gap,
+and that mouse selection anchored at the previous keyboard caret before the
+clicked cell was resolved. The **V0.29** candidate adds a second saved-under
+cursor buffer for a no-blank fast-motion handoff, anchors Writer selection at
+the pressed cell, and makes the shell launch workflow keyboard accessible with
+F1, arrows, Enter, and Escape. It also adds the sixth native application: a
+read-only Pixel Viewer for the compact M16 V1 indexed format. FileHound can
+identify and open M16 files, the bundled 96x64 test image exercises all sixteen
+palette entries, and the viewer reports invalid, unsupported, oversized, and
+failed FAT12 reads without disturbing an open Writer document.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -176,13 +186,15 @@ after a newly inserted paragraph break.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.28.4 candidate kernel is 34,639 bytes; 48 KiB is reserved for
-  controlled growth, leaving 14,513 bytes in the current kernel region.
+- The V0.29 candidate kernel is 37,751 bytes; 48 KiB is reserved for controlled
+  growth, leaving 11,401 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
+- Image viewing uses an independent fixed 8 KiB workspace at physical `0x34000`
+  so opening an image cannot overwrite Writer's 8,191-byte document buffer.
 - `MILO.MEM` stores a checksummed 24-byte structural personality profile.
 
 ## Release roadmap
@@ -375,8 +387,14 @@ contract rather than compensating with per-screen coordinate offsets.
 
 ### V0.29 — low-resolution image viewing
 
-- Load and display a deliberately small indexed image format.
-- Palette inspection, dimensions, validation, and clear unsupported-file errors.
+- Add the M16 V1 format: one 64-byte header, 1--16 RGB palette entries, and two
+  four-bit pixel indexes per byte, with deliberate 128x96 and 8 KiB limits.
+- Load images through a separate fixed workspace and display them in a sixth
+  movable, resizable, minimizable native window using crisp integer scaling.
+- Show the filename, dimensions, active palette, and explicit invalid,
+  unsupported, oversized, or FAT12-read errors. Ship a generated 96x64 fixture.
+- Add F1/arrow/Enter/Escape root-menu control and keyboard FileHound navigation,
+  while correcting fast pointer handoff and mouse-selection anchoring.
 
 ### V0.30 — pixel image editing
 
@@ -459,3 +477,4 @@ journal records intent and rationale.
 | `polish V0.28.2 Writer and composition` | Added atomic RAM-backed full-frame presentation, repaired and exposed Writer's empty 8.3 name entry, and added persistent inline Bold/Italic/Underline keyboard and toolbar controls with styled rendering and plain Terminal output. | Runtime verification showed timed redraw flicker and a Save As field whose 12-byte default left no input capacity; useful offline document work also needed minimal formatting without importing a large document model. |
 | `add V0.28.3 Writer selection and layout` | Added automatic `.TXT` normalization, visible keyboard/mouse selection, selection-aware styles, persistent Left/Center/Right/Justified paragraph layout, and RAM-backed Writer-region presentation. | Runtime use showed extensionless Save As failure, no post-entry styling or alignment, and minor incremental redraw flicker; these changes make Writer useful without importing a document framework. |
 | `stabilize V0.28.4 pointer and paragraph flow` | Staged PS/2 coordinates before cursor erasure, redrew inside the packet handler, skipped same-cell Writer drag repaint, and made Enter persist the active paragraph alignment on the next line. | Runtime verification showed severe residual pointer flicker and alignment reverting to left after a paragraph break; both faults were in state-transition timing rather than the visible controls. |
+| `add V0.29 keyboard shell and Pixel Viewer` | Added a no-blank fast-pointer handoff, corrected Writer drag anchoring, exposed the application menu and FileHound through the keyboard, and introduced a sixth resizable M16 V1 image-viewer window with a separate 8 KiB buffer, palette inspection, validation, errors, and a generated 96x64 fixture. | Complete the requested keyboard-first workflow, resolve the two remaining input defects, and begin the planned low-resolution image workstation without importing an image framework or risking open document data. |

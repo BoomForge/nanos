@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.28.4 native desktop and Writer."""
+"""Static and binary checks for the V0.29 native desktop and Pixel Viewer."""
 
 from pathlib import Path
 import re
@@ -13,6 +13,11 @@ CURSOR_BACKING = 0x32400
 CURSOR_BACKING_END = CURSOR_BACKING + CURSOR_WIDTH * CURSOR_HEIGHT * 4
 TERMINAL_BUFFER = 0x32800
 TERMINAL_BUFFER_END = TERMINAL_BUFFER + 100 * 25
+CURSOR_NEXT_BACKING = 0x33400
+CURSOR_NEXT_BACKING_END = (CURSOR_NEXT_BACKING +
+                           CURSOR_WIDTH * CURSOR_HEIGHT * 4)
+IMAGE_BUFFER = 0x34000
+IMAGE_BUFFER_END = IMAGE_BUFFER + 8192
 FRAMEBUFFER_BACKING = 0x100000
 FRAMEBUFFER_BACKING_END = FRAMEBUFFER_BACKING + 1024 * 768 * 4
 
@@ -36,12 +41,18 @@ def main():
     assert "#define TERMINAL_COLUMNS 100" in kernel_source
     assert "#define TERMINAL_ROWS 25" in kernel_source
     assert "#define TERMINAL_BUFFER_ADDRESS 0x32800" in kernel_source
+    assert "#define MOUSE_NEXT_BACKING_ADDRESS 0x33400" in kernel_source
+    assert "#define IMAGE_BUFFER_ADDRESS 0x34000" in kernel_source
+    assert "#define IMAGE_LIMIT 8192" in kernel_source
     assert "#define GUI_FILE_ROWS 10" in kernel_source
     assert "#define MOUSE_MAX_X 1012" in kernel_source
     assert "#define MOUSE_MAX_Y 752" in kernel_source
     assert CURSOR_BACKING_END == 0x32700
     assert CURSOR_BACKING_END < TERMINAL_BUFFER
-    assert TERMINAL_BUFFER_END < 0x34000
+    assert TERMINAL_BUFFER_END < CURSOR_NEXT_BACKING
+    assert CURSOR_NEXT_BACKING_END == 0x33700
+    assert CURSOR_NEXT_BACKING_END < IMAGE_BUFFER
+    assert IMAGE_BUFFER_END == 0x36000
     require(
         kernel_source,
         "call terminal_buffer_store_character\n    call draw_character",
@@ -67,35 +78,40 @@ def main():
         b"M.I.L.O // LOCAL",
         b"I386 // POLL",
         b"1024X768X32",
-        b"RIGHT CLICK // APPS",
+        b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.28.4",
+        b"M.I.L.O V0.29",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.28.4",
+        b"M.I.L.O VERSION 0.29",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
         b"NAME (AUTO .TXT)",
         b"UNSAVED // CLOSE AGAIN",
+        b"M.I.L.O PIXEL VIEWER",
+        b"PIXEL VIEWER // INDEXED LOCAL IMAGE",
+        b"M16 V1 // 4-BIT INDEXED",
+        b"VIEW ONLY // PIXEL EDITING ARRIVES IN V0.30",
+        b"SUPPORTED: M16 V1 // MAX 128X96 // 16 COLOURS",
     ):
         assert marker in kernel, marker
 
     # Startup is a root desktop with a lightweight system overlay and a sparse
     # taskbar. No launcher, dashboard application, or ordinary window is open.
     for fragment in (
-        ".equ WM_COUNT, 5",
+        ".equ WM_COUNT, 6",
         ".equ WM_ROOT_MENU_WIDTH, 232",
-        ".equ WM_ROOT_MENU_HEIGHT, 176",
+        ".equ WM_ROOT_MENU_HEIGHT, 204",
         ".equ WM_ROOT_MENU_ROW, 28",
         ".equ WM_TASKBAR_Y, 704",
         ".equ WM_TASKBAR_HEIGHT, 64",
         "movl $1024, %ecx\n    movl $768, %edx",
-        "wm_flags: .byte 0, 0, 0, 0, 0",
+        "wm_flags: .byte 0, 0, 0, 0, 0, 0",
         "wm_active: .byte WM_NONE",
         "call wm_render_system_overlay\n    call wm_render_all_windows",
         "call wm_render_all_windows",
@@ -109,6 +125,9 @@ def main():
         "gui_handle_pointer_motion:",
         "wm_menu_hover: .byte WM_NONE",
         "cmpl %edi, %eax\n    jne gui_menu_item_idle",
+        "wm_keyboard_toggle_menu:",
+        "wm_keyboard_menu_move:",
+        "wm_keyboard_menu_activate:",
     ):
         require(shell_source, fragment)
     for obsolete in (
@@ -131,24 +150,24 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $888, %eax\n    movl $708, %edx",
+        "movl $904, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.28.4") * 8 == 1008
+    assert 904 + len("M.I.L.O V0.29") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
-    # Five independent native application windows retain focus, stacking,
+    # Six independent native application windows retain focus, stacking,
     # movement, bounded resizing, controls, terminal state, and file operations.
     for fragment in (
         ".equ WM_FLAG_VISIBLE, 1",
         ".equ WM_FLAG_MINIMIZED, 2",
         ".equ WM_FLAG_MAXIMIZED, 4",
-        "wm_x: .long 64, 104, 144, 96, 120",
-        "wm_y: .long 64, 92, 120, 240, 72",
-        "wm_w: .long 832, 832, 832, 832, 760",
-        "wm_h: .long 456, 456, 456, 456, 560",
-        "wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL, WM_EDITOR",
+        "wm_x: .long 64, 104, 144, 96, 120, 88",
+        "wm_y: .long 64, 92, 120, 240, 72, 80",
+        "wm_w: .long 832, 832, 832, 832, 760, 720",
+        "wm_h: .long 456, 456, 456, 456, 560, 536",
+        "wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL, WM_EDITOR, WM_IMAGE",
         "call wm_bring_to_front",
         "wm_minimize_window:",
         "wm_close_window:",
@@ -158,8 +177,8 @@ def main():
         "movl $WM_TASKBAR_Y, (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%eax,4)",
         "wm_xor_drag_outline:",
         ".equ WM_RESIZE_GRIP, 20",
-        "wm_min_w: .long 720, 640, 560, 560, 560",
-        "wm_min_h: .long 456, 360, 400, 320, 320",
+        "wm_min_w: .long 720, 640, 560, 560, 560, 600",
+        "wm_min_h: .long 456, 360, 400, 320, 320, 420",
         "wm_resize_window: .byte WM_NONE",
         "wm_render_resize_grip:",
         "wm_resize_drag:",
@@ -288,6 +307,16 @@ def main():
     ):
         require(kernel_source, fragment)
 
+    # A mouse selection starts at the cell that was actually pressed, not at
+    # the previous keyboard caret. Resolving the pointer must precede anchoring.
+    editor_click = shell_source[
+        shell_source.index("gui_editor_click_text:"):
+        shell_source.index("gui_editor_pointer_to_cursor:")
+    ]
+    assert editor_click.index("call gui_editor_pointer_to_cursor") < editor_click.index(
+        "movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)"
+    )
+
     # FileHound is a native FAT12-root adaptation: one compact pane, aligned
     # metadata columns, category markers, honest paging, and the real existing
     # file operations. Every row follows the translated window coordinates.
@@ -302,6 +331,7 @@ def main():
         "gui_file_type_for_entry:",
         "gui_type_text: .asciz \"TEXT\"",
         "gui_type_data: .asciz \"DATA\"",
+        "gui_type_image: .asciz \"IMAGE\"",
         "gui_type_file: .asciz \"FILE\"",
         "addl $192, %eax",
         "subl $192, %eax",
@@ -312,6 +342,8 @@ def main():
         "call gui_copy_render_name",
         "gui_render_name: .space 13",
         "call gui_draw_classic_button",
+        "gui_keyboard_file_previous:",
+        "gui_keyboard_file_next:",
     ):
         require(shell_source, fragment)
     browser = shell_source[
@@ -321,6 +353,54 @@ def main():
     assert "BOOT_CURSOR_X" not in browser
     assert "BOOT_CURSOR_Y" not in browser
     assert "call print_directory_name" not in browser
+
+    # F1 exposes the full application menu without a pointer. Arrow keys,
+    # Enter, and Escape operate that menu; FileHound also supports keyboard
+    # selection, paging, and opening.
+    for fragment in (
+        "cmpb $0x3b, %al\n    je keyboard_menu_toggle",
+        "cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)",
+        "keyboard_menu_key:",
+        "keyboard_menu_extended:",
+        "call wm_keyboard_toggle_menu",
+        "call wm_keyboard_close_menu",
+        "call wm_keyboard_menu_move",
+        "call wm_keyboard_menu_activate",
+        "keyboard_filehound_key:",
+        "keyboard_filehound_extended:",
+        "call gui_keyboard_file_previous",
+        "call gui_keyboard_file_next",
+        "call gui_action_open",
+    ):
+        require(kernel_source, fragment)
+
+    # V0.29 adds a read-only sixth application for the compact native M16 V1
+    # format. Its dedicated workspace cannot overwrite Writer's document
+    # buffer, and malformed or external formats produce explicit states.
+    for fragment in (
+        ".equ WM_IMAGE, 5",
+        "gui_render_image_viewer:",
+        "gui_entry_is_m16:",
+        "gui_entry_is_external_image:",
+        "image_open_default:",
+        "image_open_entry:",
+        "image_validate:",
+        "cmpl $0x3631494d, IMAGE_BUFFER_ADDRESS",
+        "cmpb $1, IMAGE_BUFFER_ADDRESS + 4",
+        "cmpl $128, %eax",
+        "cmpl $96, %eax",
+        "image_palette_colors: .space 16 * 4",
+        "gui_image_invalid: .asciz \"INVALID OR TRUNCATED M16 IMAGE\"",
+        "gui_image_unsupported: .asciz \"UNSUPPORTED IMAGE FORMAT OR DIMENSIONS\"",
+        "gui_image_load_failed: .asciz \"FAT12 IMAGE READ FAILED\"",
+    ):
+        require(shell_source, fragment)
+    for fragment in (
+        "load_entry_to_image_buffer:",
+        "movl $IMAGE_BUFFER_ADDRESS, %edi",
+        "cmpl $IMAGE_LIMIT, %eax",
+    ):
+        require(kernel_source, fragment)
 
     # The Conky-like root overlay reports real native state. Storage is counted
     # from FAT12, activity is sampled from real input events, applications use
@@ -390,6 +470,7 @@ def main():
         (116, "wm_open_traits"),
         (144, "wm_open_terminal"),
         (172, "wm_open_editor"),
+        (200, "wm_open_image"),
     ):
         require(shell_source, "cmpl $%d, %%edx\n    jb %s" % (boundary, target))
 
@@ -417,13 +498,19 @@ def main():
         "testb $0x20, %bl",
         "movl $MOUSE_BACKING_ADDRESS, %edi",
         "movl $MOUSE_BACKING_ADDRESS, %esi",
+        "movl $MOUSE_NEXT_BACKING_ADDRESS, %esi",
+        "movl $MOUSE_NEXT_BACKING_ADDRESS, %edi",
+        "draw_mouse_cursor_at_next:",
+        "mouse_next_row_address: .long 0",
     ):
         require(mouse_source, fragment)
     assert "testb $0xc0, %bl" not in mouse_source
 
-    # The old cursor remains visible through all packet decoding. New X/Y are
-    # staged, both axes commit together, and the cursor is redrawn before the
-    # handler returns. This minimizes its absent interval during movement.
+    # The old cursor remains visible through all packet decoding. A fast,
+    # non-overlapping motion draws the staged cursor into a second saved-under
+    # buffer before restoring the old one, so the screen never contains a
+    # deliberate blank-pointer frame. Overlapping/button motion retains the
+    # conservative staged commit, and every path redraws before returning.
     require(
         mouse_source,
         "cmpl $3, %ecx\n    jb mouse_packet_incomplete\n"
@@ -434,6 +521,16 @@ def main():
     assert "call hide_mouse_cursor" not in complete_packet
     require(mouse_source, "mouse_next_x: .long 512")
     require(mouse_source, "mouse_next_y: .long 384")
+    require(
+        mouse_source,
+        "mouse_commit_no_blank:\n"
+        "    call draw_mouse_cursor_at_next\n"
+        "    call hide_mouse_cursor\n"
+        "    movl $MOUSE_NEXT_BACKING_ADDRESS, %esi\n"
+        "    movl $MOUSE_BACKING_ADDRESS, %edi\n"
+        "    movl $192, %ecx\n"
+        "    rep movsl",
+    )
     require(
         mouse_source,
         "call hide_mouse_cursor\n"
@@ -453,8 +550,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.28.4 desktop contract: %d-byte kernel, backbuffer, held "
-        "splash, formatted Writer, RTC taskbar, FileHound, terminal OK"
+        "M.I.L.O V0.29 desktop contract: %d-byte kernel, no-blank pointer, "
+        "keyboard shell, formatted Writer, FileHound, M16 viewer OK"
         % len(kernel)
     )
 

@@ -20,7 +20,8 @@
 .equ WM_TRAITS, 2
 .equ WM_TERMINAL, 3
 .equ WM_EDITOR, 4
-.equ WM_COUNT, 5
+.equ WM_IMAGE, 5
+.equ WM_COUNT, 6
 .equ WM_NONE, 255
 .equ WM_FLAG_VISIBLE, 1
 .equ WM_FLAG_MINIMIZED, 2
@@ -28,14 +29,14 @@
 .equ WM_REFERENCE_X, 168
 .equ WM_REFERENCE_Y, 48
 .equ WM_ROOT_MENU_WIDTH, 232
-.equ WM_ROOT_MENU_HEIGHT, 176
+.equ WM_ROOT_MENU_HEIGHT, 204
 .equ WM_ROOT_MENU_ROW, 28
 .equ WM_TASKBAR_Y, 704
 .equ WM_TASKBAR_HEIGHT, 64
 .equ WM_TASK_BUTTON_X, 16
 .equ WM_TASK_BUTTON_Y, 724
-.equ WM_TASK_BUTTON_WIDTH, 144
-.equ WM_TASK_BUTTON_STRIDE, 152
+.equ WM_TASK_BUTTON_WIDTH, 128
+.equ WM_TASK_BUTTON_STRIDE, 136
 .equ WM_ACTIVITY_SAMPLES, 20
 .equ WM_ACTIVITY_GRAPH_MAX, 120
 .equ WM_RESIZE_GRIP, 20
@@ -144,6 +145,7 @@ wm_initialize:
     movb $WM_TRAITS, (KERNEL_LOAD_ADDRESS + wm_z_order + 2 - _start)
     movb $WM_TERMINAL, (KERNEL_LOAD_ADDRESS + wm_z_order + 3 - _start)
     movb $WM_EDITOR, (KERNEL_LOAD_ADDRESS + wm_z_order + 4 - _start)
+    movb $WM_IMAGE, (KERNEL_LOAD_ADDRESS + wm_z_order + 5 - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_resize_window - _start)
@@ -571,107 +573,110 @@ wm_render_system_overlay:
     movl $WM_EDITOR, %edi
     movl $356, %edx
     call wm_render_application_state
+    movl $WM_IMAGE, %edi
+    movl $380, %edx
+    call wm_render_application_state
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_ram - _start), %esi
     movl $824, %eax
-    movl $392, %edx
+    movl $408, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl BOOT_MEMORY_MIB(%ebp), %eax
     movl $888, %ebx
-    movl $392, %edx
+    movl $408, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_mib_short - _start), %esi
     movl $944, %eax
-    movl $392, %edx
+    movl $408, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_disk - _start), %esi
     movl $824, %eax
-    movl $420, %edx
+    movl $436, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_free_kib - _start), %eax
     movl $872, %ebx
-    movl $420, %edx
+    movl $436, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_slash - _start), %esi
     movl $912, %eax
-    movl $420, %edx
+    movl $436, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_total_kib - _start), %eax
     movl $928, %ebx
-    movl $420, %edx
+    movl $436, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_kib - _start), %esi
     movl $968, %eax
-    movl $420, %edx
+    movl $436, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_files - _start), %esi
     movl $824, %eax
-    movl $448, %edx
+    movl $464, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + gui_overlay_file_count - _start), %eax
     movl $888, %ebx
-    movl $448, %edx
+    movl $464, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_video - _start), %esi
     movl $824, %eax
-    movl $476, %edx
+    movl $492, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_video_mode - _start), %esi
     movl $880, %eax
-    movl $476, %edx
+    movl $492, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_temp - _start), %esi
     movl $824, %eax
-    movl $504, %edx
+    movl $520, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_unavailable - _start), %esi
     movl $888, %eax
-    movl $504, %edx
+    movl $520, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_network - _start), %esi
     movl $824, %eax
-    movl $532, %edx
+    movl $548, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_offline - _start), %esi
     movl $888, %eax
-    movl $532, %edx
+    movl $548, %edx
     movl $GUI_COLOR_GREEN, %ecx
     call gui_print_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_events - _start), %esi
     movl $824, %eax
-    movl $560, %edx
+    movl $576, %edx
     movl $GUI_COLOR_DIM, %ecx
     call gui_print_at
     movl (KERNEL_LOAD_ADDRESS + system_event_count - _start), %eax
     movl $896, %ebx
-    movl $560, %edx
+    movl $576, %edx
     movl $GUI_COLOR_TEXT, %ecx
     call gui_number_at
 
     movl $(KERNEL_LOAD_ADDRESS + gui_overlay_hint - _start), %esi
     movl $824, %eax
-    movl $592, %edx
+    movl $608, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
     ret
@@ -959,6 +964,8 @@ wm_window_text_ready:
     movl %ebx, (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start)
     cmpl $WM_EDITOR, %eax
     je wm_render_editor_content
+    cmpl $WM_IMAGE, %eax
+    je wm_render_image_content
     cmpl $WM_FILES, %eax
     je wm_render_files_content
     cmpl $WM_TRAITS, %eax
@@ -973,6 +980,9 @@ wm_render_traits_content:
     jmp wm_render_content_complete
 wm_render_editor_content:
     call gui_render_editor
+    jmp wm_render_content_complete
+wm_render_image_content:
+    call gui_render_image_viewer
     jmp wm_render_content_complete
 wm_render_terminal_content:
     call wm_sync_terminal_bounds
@@ -1087,7 +1097,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $888, %eax
+    movl $904, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -1208,6 +1218,14 @@ wm_render_root_menu:
     movl $224, %ecx
     movl $(KERNEL_LOAD_ADDRESS + gui_editor_label - _start), %edx
     movl $WM_EDITOR, %edi
+    call gui_draw_menu_item
+    movl (KERNEL_LOAD_ADDRESS + wm_menu_x - _start), %eax
+    addl $4, %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_menu_y - _start), %ebx
+    addl $172, %ebx
+    movl $224, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_label - _start), %edx
+    movl $WM_IMAGE, %edi
     call gui_draw_menu_item
     ret
 
@@ -1959,6 +1977,215 @@ gui_editor_prepare_complete:
     popal
     ret
 
+/* Read-only low-resolution indexed image workspace. Pixels are scaled with
+ * nearest-neighbour blocks, preserving crisp source pixels and avoiding a
+ * bitmap framework, interpolation code, or hidden allocation. */
+gui_render_image_viewer:
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_heading - _start), %esi
+    movl $192, %eax
+    movl $88, %edx
+    movl $GUI_COLOR_LILAC, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_editor_file_label - _start), %esi
+    movl $192, %eax
+    movl $112, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + image_filename - _start), %esi
+    movl $240, %eax
+    movl $112, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_print_at
+
+    movzbl (KERNEL_LOAD_ADDRESS + image_status - _start), %eax
+    testl %eax, %eax
+    jz gui_image_render_ready
+    decl %eax
+    cmpl $2, %eax
+    ja gui_image_render_complete
+    movl (KERNEL_LOAD_ADDRESS + gui_image_error_table - _start)(,%eax,4), %esi
+    movl $216, %eax
+    movl $168, %edx
+    movl $GUI_COLOR_RED, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_supported_hint - _start), %esi
+    movl $216, %eax
+    movl $200, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    jmp gui_image_render_complete
+
+gui_image_render_ready:
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_format - _start), %esi
+    movl $192, %eax
+    movl $136, %edx
+    movl $GUI_COLOR_GREEN, %ecx
+    call gui_print_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_size_label - _start), %esi
+    movl $408, %eax
+    movl $136, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    movl (KERNEL_LOAD_ADDRESS + image_width - _start), %eax
+    movl $448, %ebx
+    movl $136, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_number_at
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_x_label - _start), %esi
+    movl $480, %eax
+    movl $136, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    movl (KERNEL_LOAD_ADDRESS + image_height - _start), %eax
+    movl $496, %ebx
+    movl $136, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_number_at
+
+    /* Reserve a narrow right column for palette inspection and scale the
+     * image into the remaining client rectangle. */
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    addl $(WM_REFERENCE_X - 136), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_palette_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_w - _start), %eax
+    subl $176, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_view_width - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %eax
+    subl $160, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_view_height - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + image_view_width - _start), %eax
+    xorl %edx, %edx
+    divl (KERNEL_LOAD_ADDRESS + image_width - _start)
+    movl %eax, %ecx
+    movl (KERNEL_LOAD_ADDRESS + image_view_height - _start), %eax
+    xorl %edx, %edx
+    divl (KERNEL_LOAD_ADDRESS + image_height - _start)
+    cmpl %eax, %ecx
+    jbe gui_image_scale_min_ready
+    movl %eax, %ecx
+gui_image_scale_min_ready:
+    testl %ecx, %ecx
+    jnz gui_image_scale_nonzero
+    movl $1, %ecx
+gui_image_scale_nonzero:
+    cmpl $4, %ecx
+    jbe gui_image_scale_ready
+    movl $4, %ecx
+gui_image_scale_ready:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + image_scale - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + image_width - _start), %eax
+    imull %ecx, %eax
+    movl (KERNEL_LOAD_ADDRESS + image_view_width - _start), %edx
+    subl %eax, %edx
+    shrl $1, %edx
+    addl $184, %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + image_origin_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_height - _start), %eax
+    imull %ecx, %eax
+    movl (KERNEL_LOAD_ADDRESS + image_view_height - _start), %edx
+    subl %eax, %edx
+    shrl $1, %edx
+    addl $152, %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + image_origin_y - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + image_origin_x - _start), %eax
+    subl $4, %eax
+    movl (KERNEL_LOAD_ADDRESS + image_origin_y - _start), %ebx
+    subl $4, %ebx
+    movl (KERNEL_LOAD_ADDRESS + image_width - _start), %ecx
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %ecx
+    addl $8, %ecx
+    movl (KERNEL_LOAD_ADDRESS + image_height - _start), %edx
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %edx
+    addl $8, %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    call gui_draw_bevel_box
+
+    movl $0, (KERNEL_LOAD_ADDRESS + image_render_row - _start)
+gui_image_row_next:
+    movl (KERNEL_LOAD_ADDRESS + image_render_row - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + image_height - _start), %eax
+    jae gui_image_pixels_complete
+    movl $0, (KERNEL_LOAD_ADDRESS + image_render_column - _start)
+gui_image_column_next:
+    movl (KERNEL_LOAD_ADDRESS + image_render_column - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + image_width - _start), %eax
+    jae gui_image_row_advance
+    movl (KERNEL_LOAD_ADDRESS + image_render_row - _start), %eax
+    imull (KERNEL_LOAD_ADDRESS + image_width - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + image_render_column - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_pixel_index - _start)
+    movl %eax, %edx
+    shrl $1, %edx
+    movzbl (IMAGE_BUFFER_ADDRESS + 64)(,%edx), %eax
+    testb $1, (KERNEL_LOAD_ADDRESS + image_pixel_index - _start)
+    jnz gui_image_pixel_low_nibble
+    shrl $4, %eax
+    jmp gui_image_pixel_index_ready
+gui_image_pixel_low_nibble:
+    andl $0x0f, %eax
+gui_image_pixel_index_ready:
+    movl (KERNEL_LOAD_ADDRESS + image_palette_colors - _start)(,%eax,4), %esi
+    movl (KERNEL_LOAD_ADDRESS + image_render_column - _start), %eax
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + image_origin_x - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + image_render_row - _start), %ebx
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %ebx
+    addl (KERNEL_LOAD_ADDRESS + image_origin_y - _start), %ebx
+    movl (KERNEL_LOAD_ADDRESS + image_scale - _start), %ecx
+    movl %ecx, %edx
+    call gui_fill_rectangle
+    incl (KERNEL_LOAD_ADDRESS + image_render_column - _start)
+    jmp gui_image_column_next
+gui_image_row_advance:
+    incl (KERNEL_LOAD_ADDRESS + image_render_row - _start)
+    jmp gui_image_row_next
+gui_image_pixels_complete:
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_palette_label - _start), %esi
+    movl (KERNEL_LOAD_ADDRESS + image_palette_x - _start), %eax
+    movl $152, %edx
+    movl $GUI_COLOR_PINK, %ecx
+    call gui_print_at
+    movl $0, (KERNEL_LOAD_ADDRESS + image_palette_index - _start)
+gui_image_palette_next:
+    movl (KERNEL_LOAD_ADDRESS + image_palette_index - _start), %edi
+    movzbl (KERNEL_LOAD_ADDRESS + image_palette_count - _start), %eax
+    cmpl %eax, %edi
+    jae gui_image_palette_complete
+    movl %edi, %eax
+    shll $1, %eax
+    addl $(KERNEL_LOAD_ADDRESS + image_hex_labels - _start), %eax
+    movl %eax, %esi
+    movl (KERNEL_LOAD_ADDRESS + image_palette_x - _start), %eax
+    movl %edi, %edx
+    imull $18, %edx
+    addl $178, %edx
+    movl $GUI_COLOR_TEXT, %ecx
+    call gui_print_at
+    movl (KERNEL_LOAD_ADDRESS + image_palette_x - _start), %eax
+    addl $24, %eax
+    movl (KERNEL_LOAD_ADDRESS + image_palette_index - _start), %ebx
+    imull $18, %ebx
+    addl $176, %ebx
+    movl $72, %ecx
+    movl $16, %edx
+    movl (KERNEL_LOAD_ADDRESS + image_palette_index - _start), %edi
+    movl (KERNEL_LOAD_ADDRESS + image_palette_colors - _start)(,%edi,4), %esi
+    call gui_fill_rectangle
+    incl (KERNEL_LOAD_ADDRESS + image_palette_index - _start)
+    jmp gui_image_palette_next
+gui_image_palette_complete:
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_view_only - _start), %esi
+    movl $192, %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_current_h - _start), %edx
+    addl $(WM_REFERENCE_Y - 28), %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+gui_image_render_complete:
+    ret
+
 gui_render_file_browser:
     call gui_prepare_file_layout
     call gui_build_file_page
@@ -2206,6 +2433,13 @@ gui_file_capacity_ready:
 gui_file_type_for_entry:
     movl $(KERNEL_LOAD_ADDRESS + gui_type_file - _start), %esi
     movl $GUI_COLOR_DIM, (KERNEL_LOAD_ADDRESS + gui_file_type_color - _start)
+    call gui_entry_is_m16
+    testl %eax, %eax
+    jz gui_file_type_test_text
+    movl $(KERNEL_LOAD_ADDRESS + gui_type_image - _start), %esi
+    movl $GUI_COLOR_LILAC, (KERNEL_LOAD_ADDRESS + gui_file_type_color - _start)
+    ret
+gui_file_type_test_text:
     cmpb $'T', 8(%edi)
     jne gui_file_type_test_memory
     cmpb $'X', 9(%edi)
@@ -2293,6 +2527,66 @@ wm_root_menu_y_ready:
 wm_root_click_complete:
     ret
 
+/* F1 opens the same native application menu as a root right click. Keyboard
+ * selection is explicit and wraps, so the full launch/restore path remains
+ * usable on systems where a pointing device is absent or inconvenient. */
+wm_keyboard_toggle_menu:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    jne wm_keyboard_close_menu
+    movl $16, (KERNEL_LOAD_ADDRESS + wm_menu_x - _start)
+    movl $(WM_TASKBAR_Y - WM_ROOT_MENU_HEIGHT), (KERNEL_LOAD_ADDRESS + wm_menu_y - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    call render_shell
+    ret
+
+wm_keyboard_close_menu:
+    movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
+    call render_shell
+    ret
+
+/* EAX=-1 previous, EAX=1 next. */
+wm_keyboard_menu_move:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start), %edx
+    cmpl $WM_COUNT, %edx
+    jb wm_keyboard_menu_has_row
+    xorl %edx, %edx
+wm_keyboard_menu_has_row:
+    testl %eax, %eax
+    js wm_keyboard_menu_previous
+    incl %edx
+    cmpl $WM_COUNT, %edx
+    jb wm_keyboard_menu_store
+    xorl %edx, %edx
+    jmp wm_keyboard_menu_store
+wm_keyboard_menu_previous:
+    testl %edx, %edx
+    jnz wm_keyboard_menu_previous_ready
+    movl $WM_COUNT, %edx
+wm_keyboard_menu_previous_ready:
+    decl %edx
+wm_keyboard_menu_store:
+    movb %dl, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
+    call render_shell
+    ret
+
+wm_keyboard_menu_activate:
+    movzbl (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start), %eax
+    cmpl $WM_HOME, %eax
+    je wm_open_home
+    cmpl $WM_FILES, %eax
+    je wm_open_files
+    cmpl $WM_TRAITS, %eax
+    je wm_open_traits
+    cmpl $WM_TERMINAL, %eax
+    je wm_open_terminal
+    cmpl $WM_EDITOR, %eax
+    je wm_open_editor
+    cmpl $WM_IMAGE, %eax
+    je wm_open_image
+    jmp wm_keyboard_close_menu
+
 /* Redraw only when the pointer crosses a root-menu row boundary. */
 gui_handle_pointer_motion:
     pushal
@@ -2308,7 +2602,7 @@ gui_handle_pointer_motion:
     subl (KERNEL_LOAD_ADDRESS + wm_menu_y - _start), %eax
     cmpl $32, %eax
     jb wm_pointer_not_on_menu
-    cmpl $172, %eax
+    cmpl $200, %eax
     jae wm_pointer_not_on_menu
     subl $32, %eax
     xorl %edx, %edx
@@ -2378,6 +2672,8 @@ wm_click_root_menu:
     jb wm_open_terminal
     cmpl $172, %edx
     jb wm_open_editor
+    cmpl $200, %edx
+    jb wm_open_image
 wm_close_root_menu:
     movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
@@ -2595,9 +2891,16 @@ gui_editor_click_save_as:
 gui_editor_click_text:
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
     jne gui_click_complete
+    /* Resolve the pressed cell first, then anchor the drag there. Previously
+     * the anchor captured the old keyboard caret, so a drag selected an
+     * apparently unrelated range whenever the click began elsewhere. */
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+    call gui_editor_pointer_to_cursor
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+    ret
 gui_editor_pointer_to_cursor:
     movl (KERNEL_LOAD_ADDRESS + wm_local_x - _start), %eax
     cmpl $24, %eax
@@ -2763,6 +3066,10 @@ wm_open_editor:
     ret
 wm_restore_editor:
     movl $WM_EDITOR, %eax
+    jmp wm_open_selected
+wm_open_image:
+    call image_open_default
+    ret
 wm_open_selected:
     movb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_menu_hover - _start)
@@ -3180,6 +3487,45 @@ gui_click_next:
     call render_shell
     ret
 
+gui_keyboard_file_previous:
+    call gui_build_file_page
+    movzbl (KERNEL_LOAD_ADDRESS + gui_selected_index - _start), %eax
+    testl %eax, %eax
+    jz gui_keyboard_file_previous_page
+    decl %eax
+    movb %al, (KERNEL_LOAD_ADDRESS + gui_selected_index - _start)
+    call render_shell
+    ret
+gui_keyboard_file_previous_page:
+    cmpl $0, (KERNEL_LOAD_ADDRESS + gui_page_offset - _start)
+    je gui_click_complete
+    call gui_click_previous
+    call gui_build_file_page
+    movzbl (KERNEL_LOAD_ADDRESS + gui_visible_files - _start), %eax
+    testl %eax, %eax
+    jz gui_click_complete
+    decl %eax
+    movb %al, (KERNEL_LOAD_ADDRESS + gui_selected_index - _start)
+    call render_shell
+    ret
+
+gui_keyboard_file_next:
+    call gui_build_file_page
+    movzbl (KERNEL_LOAD_ADDRESS + gui_selected_index - _start), %eax
+    incl %eax
+    movzbl (KERNEL_LOAD_ADDRESS + gui_visible_files - _start), %edx
+    cmpl %edx, %eax
+    jae gui_keyboard_file_next_page
+    movb %al, (KERNEL_LOAD_ADDRESS + gui_selected_index - _start)
+    call render_shell
+    ret
+gui_keyboard_file_next_page:
+    movl (KERNEL_LOAD_ADDRESS + gui_page_offset - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + gui_file_row_capacity - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + gui_total_files - _start), %eax
+    jae gui_click_complete
+    jmp gui_click_next
+
 gui_get_selected_entry:
     movzbl (KERNEL_LOAD_ADDRESS + gui_selected_index - _start), %eax
     movzbl (KERNEL_LOAD_ADDRESS + gui_visible_files - _start), %edx
@@ -3196,6 +3542,12 @@ gui_action_open:
     call gui_get_selected_entry
     testl %eax, %eax
     jz gui_click_complete
+    call gui_entry_is_m16
+    testl %eax, %eax
+    jnz image_open_entry
+    call gui_entry_is_external_image
+    testl %eax, %eax
+    jnz image_open_unsupported_entry
     pushl %edi
     movl $WM_TERMINAL, %eax
     call wm_open_selected
@@ -3218,9 +3570,176 @@ gui_action_edit:
     call gui_get_selected_entry
     testl %eax, %eax
     jz gui_click_complete
+    call gui_entry_is_m16
+    testl %eax, %eax
+    jnz image_open_entry
+    call gui_entry_is_external_image
+    testl %eax, %eax
+    jnz image_open_unsupported_entry
     call gui_copy_entry_name
     movl $(KERNEL_LOAD_ADDRESS + gui_action_source - _start), %esi
     call start_editor
+    ret
+
+/* EDI=root entry, EAX=1 only for the native four-bit indexed extension. */
+gui_entry_is_m16:
+    xorl %eax, %eax
+    cmpb $'M', 8(%edi)
+    jne gui_entry_m16_complete
+    cmpb $'1', 9(%edi)
+    jne gui_entry_m16_complete
+    cmpb $'6', 10(%edi)
+    jne gui_entry_m16_complete
+    movl $1, %eax
+gui_entry_m16_complete:
+    ret
+
+/* Recognize common external image extensions so FileHound can give a clear
+ * viewer error instead of dumping binary bytes into Terminal. */
+gui_entry_is_external_image:
+    xorl %eax, %eax
+    cmpb $'B', 8(%edi)
+    jne gui_entry_test_jpg
+    cmpb $'M', 9(%edi)
+    jne gui_entry_test_jpg
+    cmpb $'P', 10(%edi)
+    je gui_entry_external_image
+gui_entry_test_jpg:
+    cmpb $'J', 8(%edi)
+    jne gui_entry_test_png
+    cmpb $'P', 9(%edi)
+    jne gui_entry_test_png
+    cmpb $'G', 10(%edi)
+    je gui_entry_external_image
+gui_entry_test_png:
+    cmpb $'P', 8(%edi)
+    jne gui_entry_test_gif
+    cmpb $'N', 9(%edi)
+    jne gui_entry_test_gif
+    cmpb $'G', 10(%edi)
+    je gui_entry_external_image
+gui_entry_test_gif:
+    cmpb $'G', 8(%edi)
+    jne gui_entry_external_complete
+    cmpb $'I', 9(%edi)
+    jne gui_entry_external_complete
+    cmpb $'F', 10(%edi)
+    jne gui_entry_external_complete
+gui_entry_external_image:
+    movl $1, %eax
+gui_entry_external_complete:
+    ret
+
+image_open_default:
+    movl $(KERNEL_LOAD_ADDRESS + image_default_name - _start), %esi
+    call find_root_entry
+    testl %eax, %eax
+    jnz image_open_entry
+    movl $(KERNEL_LOAD_ADDRESS + image_default_name - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + image_filename - _start), %edi
+    movl $13, %ecx
+    rep movsb
+    movb $3, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
+    jmp image_open_window
+
+image_open_unsupported_entry:
+    call gui_copy_entry_name
+    movl $(KERNEL_LOAD_ADDRESS + gui_action_source - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + image_filename - _start), %edi
+    movl $13, %ecx
+    rep movsb
+    movb $2, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
+    jmp image_open_window
+
+image_open_entry:
+    pushl %edi
+    call gui_copy_entry_name
+    movl $(KERNEL_LOAD_ADDRESS + gui_action_source - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + image_filename - _start), %edi
+    movl $13, %ecx
+    rep movsb
+    popl %edi
+    call load_entry_to_image_buffer
+    cmpl $2, %eax
+    je image_open_unsupported_size
+    testl %eax, %eax
+    jz image_open_failed
+    call image_validate
+    jmp image_open_window
+image_open_unsupported_size:
+    movb $2, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    jmp image_open_window
+image_open_failed:
+    movb $3, (KERNEL_LOAD_ADDRESS + image_status - _start)
+image_open_window:
+    movl $WM_IMAGE, %eax
+    jmp wm_open_selected
+
+/* Native M16 V1 layout: MI16, version byte, palette count, 16-bit width and
+ * height, six reserved bytes, sixteen RGB triples, then two 4-bit pixels per
+ * byte. The deliberately strict bounds keep the appliance predictable. */
+image_validate:
+    movb $1, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    cmpl $64, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
+    jb image_validate_complete
+    cmpl $0x3631494d, IMAGE_BUFFER_ADDRESS
+    jne image_validate_complete
+    cmpb $1, IMAGE_BUFFER_ADDRESS + 4
+    jne image_validate_unsupported
+    movzbl IMAGE_BUFFER_ADDRESS + 5, %eax
+    testl %eax, %eax
+    jz image_validate_complete
+    cmpl $16, %eax
+    ja image_validate_unsupported
+    movb %al, (KERNEL_LOAD_ADDRESS + image_palette_count - _start)
+    movzwl IMAGE_BUFFER_ADDRESS + 6, %eax
+    testl %eax, %eax
+    jz image_validate_complete
+    cmpl $128, %eax
+    ja image_validate_unsupported
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_width - _start)
+    movzwl IMAGE_BUFFER_ADDRESS + 8, %eax
+    testl %eax, %eax
+    jz image_validate_complete
+    cmpl $96, %eax
+    ja image_validate_unsupported
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_height - _start)
+    imull (KERNEL_LOAD_ADDRESS + image_width - _start), %eax
+    incl %eax
+    shrl $1, %eax
+    addl $64, %eax
+    cmpl (KERNEL_LOAD_ADDRESS + image_file_size - _start), %eax
+    ja image_validate_complete
+
+    xorl %ecx, %ecx
+image_palette_cache_next:
+    cmpl $16, %ecx
+    jae image_validate_ready
+    xorl %eax, %eax
+    movzbl (KERNEL_LOAD_ADDRESS + image_palette_count - _start), %edx
+    cmpl %edx, %ecx
+    jae image_palette_cache_store
+    movl %ecx, %edx
+    leal (%edx,%edx,2), %edx
+    movzbl (IMAGE_BUFFER_ADDRESS + 16)(,%edx), %eax
+    shll $16, %eax
+    movzbl (IMAGE_BUFFER_ADDRESS + 17)(,%edx), %ebx
+    shll $8, %ebx
+    orl %ebx, %eax
+    movzbl (IMAGE_BUFFER_ADDRESS + 18)(,%edx), %ebx
+    orl %ebx, %eax
+image_palette_cache_store:
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_palette_colors - _start)(,%ecx,4)
+    incl %ecx
+    jmp image_palette_cache_next
+image_validate_ready:
+    movb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    ret
+image_validate_unsupported:
+    movb $2, (KERNEL_LOAD_ADDRESS + image_status - _start)
+image_validate_complete:
     ret
 
 gui_action_copy:
@@ -3796,10 +4315,11 @@ gui_window_home_title: .asciz "M.I.L.O SYSTEM"
 gui_window_files_caption: .asciz "FILEHOUND // M.I.L.O"
 gui_window_traits_caption: .asciz "M.I.L.O TRAIT MONITOR"
 gui_window_editor_caption: .asciz "M.I.L.O WRITER"
+gui_window_image_caption: .asciz "M.I.L.O PIXEL VIEWER"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.28.4"
+gui_overlay_version: .asciz "0.29"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -3824,15 +4344,16 @@ gui_overlay_network: .asciz "NET"
 gui_overlay_offline: .asciz "OFFLINE"
 gui_overlay_slash: .asciz "/"
 gui_overlay_kib: .asciz "KIB"
-gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
+gui_overlay_hint: .asciz "F1 // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.28.4"
+gui_taskbar_version: .asciz "M.I.L.O V0.29"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
 gui_terminal_label: .asciz "TERMINAL"
 gui_editor_label: .asciz "WRITER"
+gui_image_label: .asciz "PIXEL VIEWER"
 gui_editor_default_name: .asciz "UNTITLED.TXT"
 gui_editor_file_label: .asciz "FILE"
 gui_editor_bytes_label: .asciz "BYTES"
@@ -3863,7 +4384,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.28.4"
+gui_version_status: .asciz "KERNEL   0.29"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"
@@ -3888,6 +4409,7 @@ gui_file_status: .asciz "FAT12 // LOCAL //"
 gui_items_label: .asciz "ITEMS"
 gui_type_text: .asciz "TEXT"
 gui_type_data: .asciz "DATA"
+gui_type_image: .asciz "IMAGE"
 gui_type_file: .asciz "FILE"
 gui_previous_label: .asciz "<"
 gui_next_label: .asciz ">"
@@ -3904,6 +4426,28 @@ gui_delete_prompt: .asciz "GUI DELETE // "
 gui_destination_suffix: .asciz " // TYPE DESTINATION 8.3 NAME. ESC CANCELS.\n"
 gui_delete_suffix: .asciz " // TYPE YES TO DELETE. ESC CANCELS.\n"
 gui_cancelled_message: .asciz "GUI ACTION CANCELLED. NO FILES CHANGED.\n"
+image_default_name: .asciz "MILO.M16"
+gui_image_heading: .asciz "PIXEL VIEWER // INDEXED LOCAL IMAGE"
+gui_image_format: .asciz "M16 V1 // 4-BIT INDEXED"
+gui_image_size_label: .asciz "SIZE"
+gui_image_x_label: .asciz "X"
+gui_image_palette_label: .asciz "PALETTE"
+gui_image_view_only: .asciz "VIEW ONLY // PIXEL EDITING ARRIVES IN V0.30"
+gui_image_invalid: .asciz "INVALID OR TRUNCATED M16 IMAGE"
+gui_image_unsupported: .asciz "UNSUPPORTED IMAGE FORMAT OR DIMENSIONS"
+gui_image_load_failed: .asciz "FAT12 IMAGE READ FAILED"
+gui_image_supported_hint: .asciz "SUPPORTED: M16 V1 // MAX 128X96 // 16 COLOURS"
+
+gui_image_error_table:
+    .long KERNEL_LOAD_ADDRESS + gui_image_invalid - _start
+    .long KERNEL_LOAD_ADDRESS + gui_image_unsupported - _start
+    .long KERNEL_LOAD_ADDRESS + gui_image_load_failed - _start
+
+image_hex_labels:
+    .byte '0', 0, '1', 0, '2', 0, '3', 0
+    .byte '4', 0, '5', 0, '6', 0, '7', 0
+    .byte '8', 0, '9', 0, 'A', 0, 'B', 0
+    .byte 'C', 0, 'D', 0, 'E', 0, 'F', 0
 
 .align 4
 gui_editor_status_table:
@@ -3994,6 +4538,23 @@ gui_editor_cell_x: .long 0
 gui_editor_cell_y: .long 0
 gui_editor_click_line: .long 1
 gui_editor_click_column: .long 0
+image_file_size: .long 0
+image_width: .long 0
+image_height: .long 0
+image_scale: .long 1
+image_view_width: .long 0
+image_view_height: .long 0
+image_origin_x: .long 0
+image_origin_y: .long 0
+image_palette_x: .long 0
+image_render_row: .long 0
+image_render_column: .long 0
+image_pixel_index: .long 0
+image_palette_index: .long 0
+image_palette_colors: .space 16 * 4
+image_filename: .space 13
+image_status: .byte 3
+image_palette_count: .byte 0
 gui_editor_line_prepared: .byte 0
 .align 4
 system_event_count: .long 0
@@ -4027,31 +4588,33 @@ wm_menu_x: .long 0
 wm_menu_y: .long 0
 wm_taskbar_count: .long 0
 wm_taskbar_scan: .long 0
-wm_x: .long 64, 104, 144, 96, 120
-wm_y: .long 64, 92, 120, 240, 72
-wm_w: .long 832, 832, 832, 832, 760
-wm_h: .long 456, 456, 456, 456, 560
-wm_min_w: .long 720, 640, 560, 560, 560
-wm_min_h: .long 456, 360, 400, 320, 320
-wm_restore_x: .long 64, 104, 144, 96, 120
-wm_restore_y: .long 64, 92, 120, 240, 72
-wm_restore_w: .long 832, 832, 832, 832, 760
-wm_restore_h: .long 456, 456, 456, 456, 560
+wm_x: .long 64, 104, 144, 96, 120, 88
+wm_y: .long 64, 92, 120, 240, 72, 80
+wm_w: .long 832, 832, 832, 832, 760, 720
+wm_h: .long 456, 456, 456, 456, 560, 536
+wm_min_w: .long 720, 640, 560, 560, 560, 600
+wm_min_h: .long 456, 360, 400, 320, 320, 420
+wm_restore_x: .long 64, 104, 144, 96, 120, 88
+wm_restore_y: .long 64, 92, 120, 240, 72, 80
+wm_restore_w: .long 832, 832, 832, 832, 760, 720
+wm_restore_h: .long 456, 456, 456, 456, 560, 536
 wm_title_table:
     .long KERNEL_LOAD_ADDRESS + gui_window_home_title - _start
     .long KERNEL_LOAD_ADDRESS + gui_window_files_caption - _start
     .long KERNEL_LOAD_ADDRESS + gui_window_traits_caption - _start
     .long KERNEL_LOAD_ADDRESS + gui_terminal_window_title - _start
     .long KERNEL_LOAD_ADDRESS + gui_window_editor_caption - _start
+    .long KERNEL_LOAD_ADDRESS + gui_window_image_caption - _start
 wm_task_title_table:
     .long KERNEL_LOAD_ADDRESS + gui_home_label - _start
     .long KERNEL_LOAD_ADDRESS + gui_files_label - _start
     .long KERNEL_LOAD_ADDRESS + gui_traits_label - _start
     .long KERNEL_LOAD_ADDRESS + gui_terminal_label - _start
     .long KERNEL_LOAD_ADDRESS + gui_editor_label - _start
+    .long KERNEL_LOAD_ADDRESS + gui_image_label - _start
 gui_file_entries: .space GUI_FILE_ROWS * 4
-wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL, WM_EDITOR
-wm_flags: .byte 0, 0, 0, 0, 0
+wm_z_order: .byte WM_HOME, WM_FILES, WM_TRAITS, WM_TERMINAL, WM_EDITOR, WM_IMAGE
+wm_flags: .byte 0, 0, 0, 0, 0, 0
 wm_active: .byte WM_NONE
 wm_drag_window: .byte WM_NONE
 wm_resize_window: .byte WM_NONE

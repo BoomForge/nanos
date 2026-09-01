@@ -29,6 +29,8 @@
 #define HISTORY_ENTRY_SIZE 64
 #define EDITOR_BUFFER_ADDRESS 0x30000
 #define EDITOR_LIMIT 8191
+#define IMAGE_BUFFER_ADDRESS 0x34000
+#define IMAGE_LIMIT 8192
 #define EDITOR_MARK_BOLD 2
 #define EDITOR_MARK_ITALIC 3
 #define EDITOR_MARK_UNDERLINE 4
@@ -70,6 +72,7 @@
 #define GUI_ACTION_DELETE 3
 #define GUI_FILE_ROWS 10
 #define MOUSE_BACKING_ADDRESS 0x32400
+#define MOUSE_NEXT_BACKING_ADDRESS 0x33400
 #define MOUSE_MAX_X 1012
 #define MOUSE_MAX_Y 752
 
@@ -103,16 +106,6 @@ keyboard_wait:
     call hide_mouse_cursor
     inb $0x60, %al
     incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)
-    pushl %eax
-    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
-    jne keyboard_focus_editor
-    call wm_focus_terminal_for_input
-    jmp keyboard_focus_ready
-keyboard_focus_editor:
-    call wm_focus_editor_for_input
-keyboard_focus_ready:
-    popl %eax
-
     cmpb $0xe0, %al
     je keyboard_extended_prefix
     cmpb $0xaa, %al
@@ -126,6 +119,24 @@ keyboard_focus_ready:
     jne keyboard_extended
     testb $0x80, %al
     jnz keyboard_poll
+    cmpb $0x3b, %al
+    je keyboard_menu_toggle
+    cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    jne keyboard_menu_key
+    cmpb $WM_FILES, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    je keyboard_filehound_key
+
+keyboard_focus_dispatch:
+    pushl %eax
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
+    jne keyboard_focus_editor
+    call wm_focus_terminal_for_input
+    jmp keyboard_focus_ready
+keyboard_focus_editor:
+    call wm_focus_editor_for_input
+keyboard_focus_ready:
+    popl %eax
+
     cmpb $0x2a, %al
     je keyboard_shift_pressed
     cmpb $0x36, %al
@@ -232,6 +243,65 @@ keyboard_character_ready:
     je editor_align_justify
     jmp keyboard_poll
 
+keyboard_menu_toggle:
+    call wm_keyboard_toggle_menu
+    jmp keyboard_poll
+
+keyboard_menu_key:
+    cmpb $0x01, %al
+    je keyboard_menu_escape
+    cmpb $0x1c, %al
+    je keyboard_menu_activate
+    cmpb $0x48, %al
+    je keyboard_menu_previous
+    cmpb $0x50, %al
+    je keyboard_menu_next
+    jmp keyboard_poll
+keyboard_menu_escape:
+    call wm_keyboard_close_menu
+    jmp keyboard_poll
+keyboard_menu_activate:
+    call wm_keyboard_menu_activate
+    jmp keyboard_poll
+keyboard_menu_previous:
+    movl $-1, %eax
+    call wm_keyboard_menu_move
+    jmp keyboard_poll
+keyboard_menu_next:
+    movl $1, %eax
+    call wm_keyboard_menu_move
+    jmp keyboard_poll
+
+/* FileHound's core browse/open workflow remains usable without a pointer.
+ * Arrow keys change the selected row/page and Enter opens the selection. */
+keyboard_filehound_key:
+    cmpb $0x48, %al
+    je keyboard_filehound_previous
+    cmpb $0x50, %al
+    je keyboard_filehound_next
+    cmpb $0x4b, %al
+    je keyboard_filehound_page_previous
+    cmpb $0x4d, %al
+    je keyboard_filehound_page_next
+    cmpb $0x1c, %al
+    je keyboard_filehound_open
+    jmp keyboard_focus_dispatch
+keyboard_filehound_previous:
+    call gui_keyboard_file_previous
+    jmp keyboard_poll
+keyboard_filehound_next:
+    call gui_keyboard_file_next
+    jmp keyboard_poll
+keyboard_filehound_page_previous:
+    call gui_click_previous
+    jmp keyboard_poll
+keyboard_filehound_page_next:
+    call gui_click_next
+    jmp keyboard_poll
+keyboard_filehound_open:
+    call gui_action_open
+    jmp keyboard_poll
+
 terminal_character_ready:
     movl (KERNEL_LOAD_ADDRESS + input_length - _start), %ecx
     cmpl $INPUT_LIMIT, %ecx
@@ -261,12 +331,38 @@ keyboard_extended_prefix:
 
 keyboard_extended:
     movb $0, (KERNEL_LOAD_ADDRESS + extended_prefix - _start)
+    cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    jne keyboard_menu_extended
+    cmpb $WM_FILES, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    je keyboard_filehound_extended
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     jne keyboard_editor_extended
     cmpb $0x48, %al
     je keyboard_history_up
     cmpb $0x50, %al
     je keyboard_history_down
+    jmp keyboard_poll
+
+keyboard_menu_extended:
+    cmpb $0x48, %al
+    je keyboard_menu_previous
+    cmpb $0x50, %al
+    je keyboard_menu_next
+    jmp keyboard_poll
+
+keyboard_filehound_extended:
+    cmpb $0x48, %al
+    je keyboard_filehound_previous
+    cmpb $0x50, %al
+    je keyboard_filehound_next
+    cmpb $0x4b, %al
+    je keyboard_filehound_page_previous
+    cmpb $0x4d, %al
+    je keyboard_filehound_page_next
+    cmpb $0x49, %al
+    je keyboard_filehound_page_previous
+    cmpb $0x51, %al
+    je keyboard_filehound_page_next
     jmp keyboard_poll
 
 keyboard_editor_extended:
@@ -2983,6 +3079,54 @@ load_entry_unavailable:
     xorl %eax, %eax
     ret
 
+/* Load EDI's FAT chain into a separate 8 KiB image workspace so viewing an
+ * indexed image never destroys an open Writer document. EAX=1 success,
+ * EAX=2 size outside the supported appliance limit, EAX=0 I/O/chain failure. */
+load_entry_to_image_buffer:
+    movl %edi, (KERNEL_LOAD_ADDRESS + load_entry_pointer - _start)
+    movl 28(%edi), %eax
+    cmpl $IMAGE_LIMIT, %eax
+    ja image_entry_too_large
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
+    movl %eax, (KERNEL_LOAD_ADDRESS + file_remaining - _start)
+    movl $IMAGE_BUFFER_ADDRESS, %edi
+    testl %eax, %eax
+    jz image_entry_complete
+    movl (KERNEL_LOAD_ADDRESS + load_entry_pointer - _start), %eax
+    movzwl 26(%eax), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + current_cluster - _start)
+image_entry_cluster_next:
+    movl (KERNEL_LOAD_ADDRESS + current_cluster - _start), %eax
+    call load_cluster_sector
+    testl %eax, %eax
+    jz image_entry_unavailable
+    movl (KERNEL_LOAD_ADDRESS + file_remaining - _start), %ecx
+    cmpl $512, %ecx
+    jbe image_entry_copy
+    movl $512, %ecx
+image_entry_copy:
+    pushl %ecx
+    rep movsb
+    popl %ecx
+    subl %ecx, (KERNEL_LOAD_ADDRESS + file_remaining - _start)
+    jz image_entry_complete
+    movl (KERNEL_LOAD_ADDRESS + current_cluster - _start), %eax
+    movl BOOT_FAT_ADDRESS(%ebp), %edx
+    call get_fat12_entry
+    cmpl $0x0ff8, %eax
+    jae image_entry_unavailable
+    movl %eax, (KERNEL_LOAD_ADDRESS + current_cluster - _start)
+    jmp image_entry_cluster_next
+image_entry_complete:
+    movl $1, %eax
+    ret
+image_entry_too_large:
+    movl $2, %eax
+    ret
+image_entry_unavailable:
+    xorl %eax, %eax
+    ret
+
 /* Persist both complete FATs; small and deliberately conservative. */
 persist_all_fats:
     xorl %ecx, %ecx
@@ -4242,7 +4386,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.28.4\n"
+version_message: .asciz "M.I.L.O VERSION 0.29\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"

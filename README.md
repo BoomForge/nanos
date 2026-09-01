@@ -11,12 +11,12 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.28.4 provides:
+V0.29 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
-- a Fluxbox-inspired right-click root menu and four movable, resizable
-  application windows;
+- a Fluxbox-inspired root menu available by right-click or `F1`, with
+  Arrow/Enter/Esc navigation and six movable, resizable application windows;
 - a minimized-only taskbar with click-to-restore buttons;
 - CMOS-backed local date/time and right-aligned version status;
 - a native Conky-inspired overlay with a real 0--120+ events/second graph,
@@ -30,9 +30,11 @@ V0.28.4 provides:
 - a corrected clipped-glyph path that keeps application text readable through
   window resizing, buffered Writer-region repainting, and full-frame buffered
   desktop composition to prevent lower layers flashing through;
-- late-commit PS/2 cursor movement that keeps the old cursor visible through
-  packet decoding and suppresses redundant same-cell selection redraws, plus a
-  30-entry command history; and
+- a native M16 Pixel Viewer for validated 128x96-or-smaller, 16-colour indexed
+  images, including nearest-neighbour display, palette inspection, dimensions,
+  and explicit invalid/unsupported/load errors;
+- a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
+  keyboard FileHound browsing, and a 30-entry command history; and
 - Nyx-derived deterministic pattern and trait learning without phrase storage.
 
 The complete scope, architectural boundaries, roadmap, and commit rationale
@@ -55,13 +57,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.28.4.img
+build/M.I.L.O-floppy-V0.29.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.4.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -74,10 +76,13 @@ date and time. M.I.L.O contains no network time client or timezone database.
 
 ## Interaction
 
-- Right-click the root desktop to open applications.
+- Press `F1` or right-click the root desktop to open applications. Use
+  Up/Down and Enter to launch, or Esc to close the menu.
 - Minimize a window to place it on the taskbar; click its button to restore it.
 - Drag a non-maximized window's bottom-right grip to resize it.
 - Open Writer directly or choose Edit in FileHound for native document work.
+- In FileHound, use Up/Down to select, Left/Right to change pages, and Enter to
+  open. Opening `MILO.M16` launches the native Pixel Viewer.
 - Select Writer text with Shift+Arrow or a mouse drag, then use Ctrl+B/I/U or
   the toolbar to style existing text. Ctrl+L/C/R/J applies paragraph alignment.
 - Typing automatically opens or restores Terminal.

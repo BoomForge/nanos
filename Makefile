@@ -17,13 +17,15 @@ MILO_SPLASH_SOURCE := boot/milo/assets/milo-splash.ans
 MILO_SPLASH_TOOL := tools/build_milo_splash.py
 MILO_SPLASH := $(MILO_BUILD_DIR)/splash.bin
 MILO_FILES_DIR := boot/milo/files
+MILO_SAMPLE_IMAGE_TOOL := tools/build_milo_m16.py
+MILO_SAMPLE_IMAGE := $(MILO_FILES_DIR)/MILO.M16
 MILO_FILES := $(wildcard $(MILO_FILES_DIR)/*)
 MILO_FAT12_TOOL := tools/build_milo_fat12.py
 MILO_FAT12_ARGS := --place=FARTEST.TXT=130
 MILO_ROUTING_TEST := tools/test_milo_routing_contract.py
 MILO_STORAGE_TEST := tools/test_milo_storage_contract.py
 MILO_SHELL_TEST := tools/test_milo_shell_contract.py
-MILO_VERSION ?= 0.28.4
+MILO_VERSION ?= 0.29
 MILO_FLOPPY := build/M.I.L.O-floppy-V$(MILO_VERSION).img
 PYTHON ?= python3
 INITRD_DIR := initrd
@@ -202,6 +204,9 @@ $(MILO_STAGE1): boot/milo/stage1.S
 $(MILO_SPLASH): $(MILO_SPLASH_SOURCE) $(MILO_SPLASH_TOOL)
 	@mkdir -p $(@D)
 	$(PYTHON) $(MILO_SPLASH_TOOL) $(MILO_SPLASH_SOURCE) $@
+
+$(MILO_SAMPLE_IMAGE): $(MILO_SAMPLE_IMAGE_TOOL)
+	$(PYTHON) $(MILO_SAMPLE_IMAGE_TOOL) $@
 
 $(MILO_STAGE2): boot/milo/stage2.S $(MILO_SPLASH)
 	@mkdir -p $(@D)

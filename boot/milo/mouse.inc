@@ -147,6 +147,53 @@ mouse_y_zero:
     xorl %edx, %edx
 mouse_y_store:
     movl %edx, (KERNEL_LOAD_ADDRESS + mouse_next_y - _start)
+
+    /* Motion-only packets can use a no-blank cursor handoff when the old and
+     * new 12x16 rectangles do not overlap. Draw the new cursor with a second
+     * saved-under buffer first, restore the old cursor second, then promote
+     * the new backing store. Fast movement therefore shows either the old or
+     * the new pointer (briefly both), never an empty frame. Button transitions,
+     * menu hover, and overlapping moves retain the conservative path below. */
+    movl %ebx, %eax
+    andl $7, %eax
+    jnz mouse_commit_conservative
+    cmpb $0, (KERNEL_LOAD_ADDRESS + mouse_buttons - _start)
+    jne mouse_commit_conservative
+    cmpb $0, (KERNEL_LOAD_ADDRESS + wm_menu_open - _start)
+    jne mouse_commit_conservative
+    cmpb $0, (KERNEL_LOAD_ADDRESS + mouse_cursor_visible - _start)
+    je mouse_commit_conservative
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %eax
+    subl (KERNEL_LOAD_ADDRESS + mouse_x - _start), %eax
+    jns mouse_fast_x_absolute
+    negl %eax
+mouse_fast_x_absolute:
+    cmpl $12, %eax
+    jae mouse_commit_no_blank
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_y - _start), %eax
+    subl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %eax
+    jns mouse_fast_y_absolute
+    negl %eax
+mouse_fast_y_absolute:
+    cmpl $16, %eax
+    jb mouse_commit_conservative
+
+mouse_commit_no_blank:
+    call draw_mouse_cursor_at_next
+    call hide_mouse_cursor
+    movl $MOUSE_NEXT_BACKING_ADDRESS, %esi
+    movl $MOUSE_BACKING_ADDRESS, %edi
+    movl $192, %ecx
+    rep movsl
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_y - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + mouse_cursor_visible - _start)
+    call gui_handle_pointer_motion
+    jmp mouse_buttons_ready
+
+mouse_commit_conservative:
     /* Commit both axes together. The previous cursor remains on screen during
      * packet math, shrinking its invisible interval to the actual UI update. */
     call hide_mouse_cursor
@@ -250,6 +297,61 @@ mouse_draw_pixel_done:
 draw_mouse_complete:
     ret
 
+/* Save and draw the staged non-overlapping cursor while the old cursor is
+ * still visible. The caller promotes this saved-under block after restoring
+ * the old location. */
+draw_mouse_cursor_at_next:
+    pushal
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_y - _start), %eax
+    imull BOOT_PITCH(%ebp), %eax
+    addl BOOT_FRAMEBUFFER(%ebp), %eax
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %edx
+    shll $2, %edx
+    addl %edx, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start)
+    movl $MOUSE_NEXT_BACKING_ADDRESS, %edi
+    movl $16, %ebx
+mouse_next_save_row:
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start), %esi
+    movl $12, %ecx
+    rep movsl
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start), %eax
+    addl BOOT_PITCH(%ebp), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start)
+    decl %ebx
+    jnz mouse_next_save_row
+
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_y - _start), %eax
+    imull BOOT_PITCH(%ebp), %eax
+    addl BOOT_FRAMEBUFFER(%ebp), %eax
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %edx
+    shll $2, %edx
+    addl %edx, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start)
+    movl $(KERNEL_LOAD_ADDRESS + mouse_shape - _start), %esi
+    movl $16, %ebx
+mouse_next_draw_row:
+    movzwl (%esi), %edx
+    addl $2, %esi
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start), %edi
+    movl $12, %ecx
+mouse_next_draw_pixel:
+    testl $0x0800, %edx
+    jz mouse_next_draw_pixel_done
+    movl $0x00f4a4ee, (%edi)
+mouse_next_draw_pixel_done:
+    addl $4, %edi
+    shll $1, %edx
+    decl %ecx
+    jnz mouse_next_draw_pixel
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start), %eax
+    addl BOOT_PITCH(%ebp), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_next_row_address - _start)
+    decl %ebx
+    jnz mouse_next_draw_row
+    popal
+    ret
+
 hide_mouse_cursor:
     cmpb $0, (KERNEL_LOAD_ADDRESS + mouse_cursor_visible - _start)
     je hide_mouse_complete
@@ -289,6 +391,7 @@ mouse_y: .long 384
 mouse_next_x: .long 512
 mouse_next_y: .long 384
 mouse_row_address: .long 0
+mouse_next_row_address: .long 0
 mouse_packet: .space 3
 mouse_packet_index: .byte 0
 mouse_buttons: .byte 0

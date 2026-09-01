@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the V0.28.4 boot layout, splash hold, and FAT12 fixture."""
+"""Audit the V0.29 boot layout, splash hold, FAT12, and M16 fixture."""
 
 from pathlib import Path
 import struct
@@ -56,7 +56,7 @@ def main():
     kernel = Path(sys.argv[3]).read_bytes()
     stage2_source = Path(sys.argv[4]).read_text()
     assert len(image) == IMAGE_SIZE, len(image)
-    assert image[3:11] == b"MILO28.4", image[3:11]
+    assert image[3:11] == b"MILO29.0", image[3:11]
     assert b"M.I.L.O stage 1 online" not in image
     assert b"M.I.L.O stage 2 online" not in image
     assert b"M.I.L.O SYSTEM INITIALISING..." in image
@@ -75,7 +75,7 @@ def main():
     assert len(kernel) <= KERNEL_RESERVED_SECTORS * SECTOR_SIZE
     kernel_offset = KERNEL_START_SECTOR * SECTOR_SIZE
     assert image[kernel_offset:kernel_offset + len(kernel)] == kernel
-    assert b"M.I.L.O VERSION 0.28.4" in kernel
+    assert b"M.I.L.O VERSION 0.29" in kernel
 
     for fragment in (
         "call render_status\n    call hold_splash_minimum",
@@ -118,6 +118,15 @@ def main():
     for name, expected in source_files.items():
         actual = extract_file(image, fat1, entries[name], data_offset, data_clusters)
         assert actual == expected, name
+
+    sample = extract_file(image, fat1, entries["MILO.M16"], data_offset,
+                          data_clusters)
+    assert sample[:4] == b"MI16"
+    assert sample[4] == 1
+    assert sample[5] == 16
+    width, height = struct.unpack_from("<HH", sample, 6)
+    assert (width, height) == (96, 64)
+    assert len(sample) == 64 + (width * height + 1) // 2
 
     far_entry = entries["FARTEST.TXT"]
     far_cluster = struct.unpack_from("<H", far_entry, 26)[0]

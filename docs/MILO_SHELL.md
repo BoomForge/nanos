@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.28.4 extends the accepted V0.26 native root desktop. Its interaction model
+V0.29 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -24,10 +24,12 @@ remains owned by the custom BIOS loader and direct assembly kernel.
   status overlay, and bottom taskbar. All ordinary applications remain hidden.
 - No dashboard, permanent launcher panel, desktop launch strip, or header
   occupies the workspace.
-- A new right-button press opens `M.I.L.O APPLICATIONS` at the pointer.
+- A new right-button press opens `M.I.L.O APPLICATIONS` at the pointer. `F1`
+  opens the same menu at a fixed keyboard-friendly location.
 - Menu placement is clamped at the right edge and above the taskbar so the
   complete menu remains visible.
-- The compact menu opens System, FileHound, Traits, Terminal, or Writer.
+- The compact menu opens System, FileHound, Traits, Terminal, Writer, or the
+  Pixel Viewer. Up/Down selects, Enter launches/restores, and Esc closes it.
 - Clicking an application entry opens or restores its independent window and
   closes the menu. Clicking elsewhere dismisses it.
 - Moving across menu entries changes the highlighted row only when a boundary
@@ -42,7 +44,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.28.4` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.29` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -55,8 +57,8 @@ normal windows naturally cover it. It reports:
 - `I386 // POLL` CPU mode;
 - live input-event rate and a rolling 20-second graph scaled across 0--120+
   events per second;
-- current state for System, FileHound, Traits, Terminal, and Writer (`ACTIVE`, `OPEN`,
-  `MINIMIZED`, or `CLOSED`);
+- current state for System, FileHound, Traits, Terminal, Writer, and Pixel
+  Viewer (`ACTIVE`, `OPEN`, `MINIMIZED`, or `CLOSED`);
 - open and minimized application counts;
 - total processed keyboard and complete mouse-packet event count;
 - BIOS-detected total usable RAM;
@@ -179,8 +181,8 @@ operation.
 
 ## File actions
 
-- **Open** restores Terminal and displays the selected file through the
-  multi-cluster FAT12 reader.
+- **Open** launches the Pixel Viewer for `.M16`, gives clear unsupported errors
+  for common external image formats, or restores Terminal for ordinary files.
 - **Edit** opens Writer with the selected file and its 8,191-byte limit.
 - **Copy** and **Rename** request an explicit destination 8.3 filename, then
   use the verified FAT12 mutation paths.
@@ -190,14 +192,30 @@ operation.
 Mouse controls never weaken the command router's safety rules. Typo correction
 remains read-only assistance and cannot authorize a file mutation.
 
+FileHound is keyboard-operable: Up/Down changes the selected row, Left/Right
+changes page, and Enter opens the selection. Combined with `F1`, every native
+application can be launched or restored without using the pointer.
+
+## Native Pixel Viewer
+
+V0.29 introduces M16 V1, a deliberately tiny uncompressed indexed format. Its
+64-byte header stores `MI16`, version, palette count, 16-bit width/height, and
+sixteen RGB triples; the remaining bytes contain two four-bit pixels per byte.
+The viewer accepts 1--16 colours and dimensions up to 128x96, loads into a
+separate 8 KiB workspace so Writer remains intact, scales with crisp nearest-
+neighbour blocks, and displays the active palette and dimensions. `MILO.M16`
+is the built-in 96x64 verification image. Pixel editing is reserved for V0.30.
+
 ## Mouse path
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.28.4 leaves the old cursor visible while all three bytes and the new
-coordinates are decoded, then erases it at the last safe moment and redraws it
-before returning to the polling loop. Drag packets that remain in one Writer
-cell no longer repaint the window. A rising right-button bit
+input. V0.29 leaves the old cursor visible while all three bytes and the new
+coordinates are decoded. Non-overlapping motion-only moves draw the new cursor
+before restoring the old position, so fast movement never deliberately
+presents an empty pointer frame. Drag packets that remain in one Writer cell
+do not repaint the window, and selection begins at the pressed cell rather than
+the previous caret. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
 dragging, and release.
 
@@ -207,8 +225,8 @@ QEMU relative mouse capture when the host pointer begins off-centre. The kernel
 already decodes quick-movement overflow packets and reaches its full coordinate
 range.
 
-The cursor uses a 768-byte saved-under buffer at `0x32400`. It is removed
-before input handling or recomposition and restored afterward.
+The cursor uses its normal 768-byte saved-under buffer at `0x32400` and a
+second handoff buffer at `0x33400` for non-overlapping fast moves.
 
 ## Verification
 
@@ -224,16 +242,16 @@ CMOS normalization, scaled live activity sampling, honest native status
 collection, minimized-only task slots and restore routing, taskbar-aware
 menu/window bounds, bounded resize dispatch, client clipping, adaptive
 FileHound layout, dynamic Terminal viewport, GUI/Terminal text isolation,
-root-menu geometry, hover and routing, five-window behavior, Writer persistence,
+root-menu geometry, mouse and keyboard routing, six-window behavior, Writer persistence,
 selection, inline formatting and alignment, automatic `.TXT` Save As,
 atomic full-frame and Writer-region composition,
 resize-safe glyph rendering, pending-action
-buffer isolation, title actions, complete-packet cursor redraw, PS/2 button
-handling, and cursor storage.
+buffer isolation, title actions, no-blank cursor handoff, PS/2 button handling,
+M16 validation/rendering, palette data, and cursor storage.
 
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.4.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```
