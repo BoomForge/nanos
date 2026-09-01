@@ -29,6 +29,12 @@
 #define HISTORY_ENTRY_SIZE 64
 #define EDITOR_BUFFER_ADDRESS 0x30000
 #define EDITOR_LIMIT 8191
+#define EDITOR_MARK_BOLD 2
+#define EDITOR_MARK_ITALIC 3
+#define EDITOR_MARK_UNDERLINE 4
+#define EDITOR_STYLE_BOLD 1
+#define EDITOR_STYLE_ITALIC 2
+#define EDITOR_STYLE_UNDERLINE 4
 #define DISK_BUFFER_ADDRESS 0x32000
 #define VERIFY_BUFFER_ADDRESS 0x32200
 #define MILO_MEMORY_SIZE 24
@@ -184,6 +190,18 @@ keyboard_character_ready:
     je editor_save
     cmpb $'S', %al
     je editor_save
+    cmpb $'b', %al
+    je editor_toggle_bold
+    cmpb $'B', %al
+    je editor_toggle_bold
+    cmpb $'i', %al
+    je editor_toggle_italic
+    cmpb $'I', %al
+    je editor_toggle_italic
+    cmpb $'u', %al
+    je editor_toggle_underline
+    cmpb $'U', %al
+    je editor_toggle_underline
     jmp keyboard_poll
 
 terminal_character_ready:
@@ -458,6 +476,16 @@ editor_newline:
     cmpl $EDITOR_LIMIT, %ecx
     jae keyboard_poll
     movb $'\n', %al
+    jmp editor_character
+
+editor_toggle_bold:
+    movb $EDITOR_MARK_BOLD, %al
+    jmp editor_character
+editor_toggle_italic:
+    movb $EDITOR_MARK_ITALIC, %al
+    jmp editor_character
+editor_toggle_underline:
+    movb $EDITOR_MARK_UNDERLINE, %al
     jmp editor_character
 
 editor_name_character:
@@ -771,22 +799,10 @@ editor_page_set:
     jmp keyboard_poll
 
 editor_begin_save_as:
-    movl $(KERNEL_LOAD_ADDRESS + editor_filename - _start), %esi
-    movl $(KERNEL_LOAD_ADDRESS + editor_save_as_name - _start), %edi
-    xorl %ecx, %ecx
-editor_save_as_copy_next:
-    cmpl $12, %ecx
-    jae editor_save_as_copy_complete
-    movb (%esi,%ecx), %al
-    movb %al, (%edi,%ecx)
-    testb %al, %al
-    jz editor_save_as_copy_ready
-    incl %ecx
-    jmp editor_save_as_copy_next
-editor_save_as_copy_complete:
-    movb $0, (%edi,%ecx)
-editor_save_as_copy_ready:
-    movb %cl, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
+    /* Start with a genuinely empty field. The previous pre-filled 12-byte
+     * UNTITLED.TXT name left no room for input and looked unresponsive. */
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
@@ -853,7 +869,14 @@ calculate_text_position:
 text_position_next:
     cmpl %edi, %ecx
     jae text_position_complete
-    cmpb $'\n', EDITOR_BUFFER_ADDRESS(,%ecx)
+    movb EDITOR_BUFFER_ADDRESS(,%ecx), %al
+    cmpb $EDITOR_MARK_BOLD, %al
+    je text_position_advance
+    cmpb $EDITOR_MARK_ITALIC, %al
+    je text_position_advance
+    cmpb $EDITOR_MARK_UNDERLINE, %al
+    je text_position_advance
+    cmpb $'\n', %al
     jne text_position_character
     incl %edx
     movl $1, %ebx
@@ -3593,6 +3616,12 @@ print_complete:
 
 /* Emit AL with newline handling and automatic horizontal wrapping. */
 emit_character:
+    cmpb $EDITOR_MARK_BOLD, %al
+    je emit_complete
+    cmpb $EDITOR_MARK_ITALIC, %al
+    je emit_complete
+    cmpb $EDITOR_MARK_UNDERLINE, %al
+    je emit_complete
     cmpb $'\n', %al
     je emit_newline
     movl (KERNEL_LOAD_ADDRESS + terminal_right - _start), %edx
@@ -3608,6 +3637,7 @@ emit_draw:
     ret
 emit_newline:
     call terminal_newline
+emit_complete:
     ret
 
 /* Store one printable terminal cell without retaining cursor glyphs. */
@@ -3777,6 +3807,72 @@ pixel_complete:
     jnz glyph_row
     ret
 
+/* Draw a Writer glyph with the active compact inline style. Italic offsets
+ * the upper rows, bold adds one foreground pixel, and underline owns row 14. */
+draw_character_styled:
+    movzbl %al, %eax
+    shll $4, %eax
+    addl BOOT_FONT(%ebp), %eax
+    movl %eax, %esi
+    movl BOOT_CURSOR_Y(%ebp), %edi
+    imull BOOT_PITCH(%ebp), %edi
+    addl BOOT_FRAMEBUFFER(%ebp), %edi
+    movl BOOT_CURSOR_X(%ebp), %eax
+    shll $2, %eax
+    addl %eax, %edi
+    movl $16, %ecx
+styled_glyph_row:
+    movzbl (%esi), %ebx
+    incl %esi
+    pushl %edi
+    testb $EDITOR_STYLE_ITALIC, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    jz styled_glyph_shifted
+    cmpl $11, %ecx
+    jbe styled_glyph_italic_lower
+    addl $8, %edi
+    jmp styled_glyph_shifted
+styled_glyph_italic_lower:
+    cmpl $5, %ecx
+    jbe styled_glyph_shifted
+    addl $4, %edi
+styled_glyph_shifted:
+    cmpl $2, %ecx
+    jne styled_glyph_bits
+    testb $EDITOR_STYLE_UNDERLINE, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    jz styled_glyph_bits
+    movl %ecx, %eax
+    movl $8, %ecx
+    pushl %edi
+styled_underline_pixel:
+    movl BOOT_COLOR(%ebp), %edx
+    movl %edx, (%edi)
+    addl $4, %edi
+    loop styled_underline_pixel
+    popl %edi
+    movl %eax, %ecx
+styled_glyph_bits:
+    pushl %ecx
+    movl $0x80, %edx
+    movl $8, %ecx
+styled_glyph_pixel:
+    testb %dl, %bl
+    jz styled_glyph_pixel_complete
+    movl BOOT_COLOR(%ebp), %eax
+    movl %eax, (%edi)
+    testb $EDITOR_STYLE_BOLD, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    jz styled_glyph_pixel_complete
+    movl %eax, 4(%edi)
+styled_glyph_pixel_complete:
+    addl $4, %edi
+    shrl $1, %edx
+    loop styled_glyph_pixel
+    popl %ecx
+    popl %edi
+    movl BOOT_PITCH(%ebp), %eax
+    addl %eax, %edi
+    loop styled_glyph_row
+    ret
+
 clear_character_cell:
     movl BOOT_CURSOR_Y(%ebp), %eax
     imull BOOT_PITCH(%ebp), %eax
@@ -3828,7 +3924,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.28.1\n"
+version_message: .asciz "M.I.L.O VERSION 0.28.2\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4116,6 +4212,8 @@ control_pressed: .byte 0
 editor_active: .byte 0
 editor_dirty: .byte 0
 editor_render_character: .byte 0
+editor_render_style: .byte 0
+editor_cursor_style: .byte 0
 editor_name_mode: .byte 0
 editor_name_length: .byte 0
 editor_save_status: .byte 0

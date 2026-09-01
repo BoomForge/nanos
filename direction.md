@@ -151,7 +151,12 @@ fifth native Writer window with a resize-derived viewport, mouse caret
 placement, verified Save and Save As, and guarded close. Runtime typing then
 showed that full desktop composition per character briefly exposed every lower
 layer. **V0.28.1** limits routine Writer edits to a front-window repaint while
-retaining full composition for actual desktop state changes.
+retaining full composition for actual desktop state changes. Continued runtime
+testing found that timed whole-desktop refreshes could still expose intermediate
+layers and that Writer's prefilled 12-character Save As value rejected all new
+input. **V0.28.2** composes complete desktop frames in RAM before presenting
+them, opens a visible empty 8.3 name field, and adds persistent one-byte
+Bold/Italic/Underline toggles to the native Writer.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -159,8 +164,10 @@ retaining full composition for actual desktop state changes.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.28.1 candidate kernel is 31,387 bytes; 32 KiB is reserved for
-  controlled growth, leaving 1,381 bytes in the current kernel region.
+- The V0.28.2 candidate kernel is 32,139 bytes; 32 KiB is reserved for
+  controlled growth, leaving 629 bytes in the current kernel region.
+- Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
+  through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
@@ -323,6 +330,17 @@ contract rather than compensating with per-screen coordinate offsets.
   minimizing, restoring, focus changes, and timed live-state refreshes.
 - Preserve and restore Terminal drawing state around the focused repaint.
 
+### V0.28.2 — buffered desktop and formatted Writer
+
+- Assemble full 1024x768x32 desktop refreshes in a fixed RAM backbuffer and
+  copy only complete frames to video memory, eliminating visible z-order
+  intermediates during the RTC refresh and state changes.
+- Replace the full `UNTITLED.TXT` Save As value with a visible, genuinely empty
+  8.3 input field so new and renamed document targets can be entered.
+- Add native Bold, Italic, and Underline toggles through Ctrl+B/I/U and toolbar
+  controls. Persist each style boundary as one inline control byte, keep it out
+  of logical columns, and ignore it in ordinary Terminal file output.
+
 ### V0.29 — low-resolution image viewing
 
 - Load and display a deliberately small indexed image format.
@@ -406,3 +424,4 @@ journal records intent and rationale.
 | `refine V0.27.1 splash and window resizing` | Added an RTC-backed minimum splash hold, a readable 0--120+ events/second graph, bounded bottom-right resize grips, client clipping, adaptive System/FileHound/Traits layouts, and a size-aware Terminal viewport. | Runtime proof showed that fast hardware hid the splash and ordinary input saturated the first graph scale; native resizing completes the expected classic window workflow without fake CPU telemetry or drawing outside application frames. |
 | `add V0.28 native Writer workspace` | Corrected clipped glyph emission, added a fifth resizable Writer window, routed FileHound Edit into it, added viewport scrolling and mouse caret placement, and connected Save, validated Save As, status feedback, and guarded close to the verified FAT12 path. | Runtime resizing exposed coordinate bytes being drawn as text, while useful document work required a native application rather than a terminal-shaped editor mode. |
 | `stabilize V0.28.1 Writer repaint` | Replaced full desktop recomposition on every Writer edit with a terminal-state-safe repaint of the frontmost Writer window, while retaining full composition for genuine desktop transitions. | Runtime typing showed the root and lower windows flickering through during back-to-front full-frame redraws; focused repaint removes that visible intermediate state without adding a large compositor or backbuffer. |
+| `polish V0.28.2 Writer and composition` | Added atomic RAM-backed full-frame presentation, repaired and exposed Writer's empty 8.3 name entry, and added persistent inline Bold/Italic/Underline keyboard and toolbar controls with styled rendering and plain Terminal output. | Runtime verification showed timed redraw flicker and a Save As field whose 12-byte default left no input capacity; useful offline document work also needed minimal formatting without importing a large document model. |
