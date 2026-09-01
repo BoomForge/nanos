@@ -101,6 +101,16 @@ apt-get update
 apt-get install -y \
   linux-image-surface linux-headers-surface iptsd libwacom-surface \
   bluez libinput-tools xinput blueman onboard
+
+# The direct installer copies this installable layer to the SSD.  The stock
+# Xubuntu live environment has firmware in its live-only layer, so without
+# explicitly installing linux-firmware here the installed Surface loses its
+# Marvell 8897 Wi-Fi/Bluetooth firmware even though networking works on the USB.
+apt-get install -y linux-firmware
+
+dpkg-query -W linux-firmware >/dev/null
+test -f /lib/firmware/mrvl/pcie8897_uapsta.bin
+
 update-initramfs -u -k all
 apt-get clean
 rm -rf /var/lib/apt/lists/*
@@ -120,10 +130,6 @@ log "Creating the full live Xubuntu layer"
 sudo mount -t overlay overlay -o "lowerdir=$STD_MERGED,upperdir=$LIVE,workdir=$LIVE_WORK" "$FULL_MERGED"
 mount_chroot "$FULL_MERGED"
 
-# casper is deliberately installed only in the LIVE upper layer.  It supplies
-# Ubuntu's live-media initramfs hook/scripts.  The previous build incorrectly
-# used a normal installed-system initrd, which caused the Surface to fall into
-# an initramfs shell before the Xubuntu squashfs could be mounted.
 sudo tee "$FULL_MERGED/usr/sbin/policy-rc.d" >/dev/null <<'POLICY'
 #!/bin/sh
 exit 101
