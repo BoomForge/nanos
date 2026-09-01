@@ -109,7 +109,9 @@ apt-get install -y \
 apt-get install -y linux-firmware
 
 dpkg-query -W linux-firmware >/dev/null
-test -f /lib/firmware/mrvl/pcie8897_uapsta.bin
+# Noble stores firmware compressed with zstd; the kernel firmware loader reads
+# the .zst transparently.  Validate the actual packaged Marvell 8897 payload.
+test -f /lib/firmware/mrvl/pcie8897_uapsta.bin.zst
 
 update-initramfs -u -k all
 apt-get clean
