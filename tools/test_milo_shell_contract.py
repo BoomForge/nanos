@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.28.3 native desktop and Writer."""
+"""Static and binary checks for the V0.28.4 native desktop and Writer."""
 
 from pathlib import Path
 import re
@@ -70,13 +70,13 @@ def main():
         b"RIGHT CLICK // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.28.3",
+        b"M.I.L.O V0.28.4",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.28.3",
+        b"M.I.L.O VERSION 0.28.4",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
@@ -135,7 +135,7 @@ def main():
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.28.3") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.28.4") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Five independent native application windows retain focus, stacking,
@@ -276,6 +276,9 @@ def main():
         "editor_select_all:",
         "editor_apply_format:",
         "editor_apply_alignment:",
+        "editor_newline_insert:",
+        "addb $EDITOR_MARK_ALIGN_LEFT, %al",
+        "movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %bl",
         "editor_selection_anchor: .long -1",
         "editor_name_append_text:",
         "movb $'T', (KERNEL_LOAD_ADDRESS + editor_save_as_name + 1 - _start)(,%ecx)",
@@ -418,24 +421,39 @@ def main():
         require(mouse_source, fragment)
     assert "testb $0xc0, %bl" not in mouse_source
 
-    # Cursor backing is erased only after byte three completes a packet. The
-    # first two PS/2 bytes leave the visible cursor untouched, eliminating the
-    # old three-redraw flicker for each physical movement packet.
+    # The old cursor remains visible through all packet decoding. New X/Y are
+    # staged, both axes commit together, and the cursor is redrawn before the
+    # handler returns. This minimizes its absent interval during movement.
     require(
         mouse_source,
         "cmpl $3, %ecx\n    jb mouse_packet_incomplete\n"
-        "    /* Keep the cursor visible while bytes one and two arrive.",
+        "    /* Keep the old cursor visible while the complete packet is decoded.",
     )
     complete_packet = mouse_source[mouse_source.index("cmpl $3, %ecx"):
                                    mouse_source.index("mouse_packet_incomplete:")]
-    assert complete_packet.count("call hide_mouse_cursor") == 1
+    assert "call hide_mouse_cursor" not in complete_packet
+    require(mouse_source, "mouse_next_x: .long 512")
+    require(mouse_source, "mouse_next_y: .long 384")
+    require(
+        mouse_source,
+        "call hide_mouse_cursor\n"
+        "    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %eax",
+    )
+    require(
+        mouse_source,
+        "mouse_packet_complete:\n"
+        "    /* Redraw before returning to the polling loop.",
+    )
+    packet_complete = mouse_source[mouse_source.index("mouse_packet_complete:"):
+                                   mouse_source.index("draw_mouse_cursor:")]
+    assert "call draw_mouse_cursor" in packet_complete
     keyboard_mouse = kernel_source[kernel_source.index("keyboard_mouse_byte:"):
                                    kernel_source.index("keyboard_extended_prefix:")]
     assert "hide_mouse_cursor" not in keyboard_mouse
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.28.3 desktop contract: %d-byte kernel, backbuffer, held "
+        "M.I.L.O V0.28.4 desktop contract: %d-byte kernel, backbuffer, held "
         "splash, formatted Writer, RTC taskbar, FileHound, terminal OK"
         % len(kernel)
     )

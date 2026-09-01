@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.28.3 provides:
+V0.28.4 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -26,10 +26,12 @@ V0.28.3 provides:
 - a fifth native Writer window with resize-aware text, mouse caret placement,
   Save/Save As with automatic `.TXT` extension handling, guarded close,
   keyboard and mouse text selection, compact persistent Bold/Italic/Underline,
-  and Left/Center/Right/Justified paragraph alignment;
+  and inherited Left/Center/Right/Justified paragraph alignment;
 - a corrected clipped-glyph path that keeps application text readable through
   window resizing, buffered Writer-region repainting, and full-frame buffered
-  desktop composition to prevent lower layers flashing through, plus a
+  desktop composition to prevent lower layers flashing through;
+- late-commit PS/2 cursor movement that keeps the old cursor visible through
+  packet decoding and suppresses redundant same-cell selection redraws, plus a
   30-entry command history; and
 - Nyx-derived deterministic pattern and trait learning without phrase storage.
 
@@ -53,13 +55,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.28.3.img
+build/M.I.L.O-floppy-V0.28.4.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.3.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.4.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `

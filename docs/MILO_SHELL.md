@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.28.3 extends the accepted V0.26 native root desktop. Its interaction model
+V0.28.4 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -42,7 +42,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.28.3` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.28.4` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -122,6 +122,10 @@ these bytes while drawing, and Terminal's `type` path ignores them, so layout
 remains persistent without a sidecar file, document database, font engine, or
 doubled text buffer. Active state is highlighted in the toolbar.
 
+Pressing Enter creates a new paragraph with the current paragraph's alignment.
+Writer stores the inherited absolute alignment marker after the newline, so the
+new paragraph remains aligned after Save, close, and reopen.
+
 The shared clipped text emitter reloads the source byte after coordinate clip
 checks. This prevents resized client text from being replaced by glyphs derived
 from screen coordinates—the corruption exposed by V0.27.1 runtime testing.
@@ -190,9 +194,10 @@ remains read-only assistance and cannot authorize a file mutation.
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.28.3 leaves the cursor visible while bytes one and two arrive, then
-erases, moves, and redraws it once when byte three completes the packet. This
-removes the former three-redraw movement flicker. A rising right-button bit
+input. V0.28.4 leaves the old cursor visible while all three bytes and the new
+coordinates are decoded, then erases it at the last safe moment and redraws it
+before returning to the polling loop. Drag packets that remain in one Writer
+cell no longer repaint the window. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
 dragging, and release.
 
@@ -229,6 +234,6 @@ handling, and cursor storage.
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.3.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.4.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

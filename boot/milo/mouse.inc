@@ -7,6 +7,8 @@ initialize_mouse:
     movb $0, (KERNEL_LOAD_ADDRESS + mouse_cursor_visible - _start)
     movl $512, (KERNEL_LOAD_ADDRESS + mouse_x - _start)
     movl $384, (KERNEL_LOAD_ADDRESS + mouse_y - _start)
+    movl $512, (KERNEL_LOAD_ADDRESS + mouse_next_x - _start)
+    movl $384, (KERNEL_LOAD_ADDRESS + mouse_next_y - _start)
 
     call ps2_wait_input_clear
     testl %eax, %eax
@@ -91,9 +93,8 @@ mouse_store_byte:
     incl %ecx
     cmpl $3, %ecx
     jb mouse_packet_incomplete
-    /* Keep the cursor visible while bytes one and two arrive. Erase it only
-     * once the complete packet can immediately move and redraw it. */
-    call hide_mouse_cursor
+    /* Keep the old cursor visible while the complete packet is decoded. The
+     * movement path erases it only after the new coordinates are ready. */
     movb $0, (KERNEL_LOAD_ADDRESS + mouse_packet_index - _start)
     incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)
     call apply_mouse_packet
@@ -126,7 +127,7 @@ mouse_x_delta_ready:
 mouse_x_zero:
     xorl %edx, %edx
 mouse_x_store:
-    movl %edx, (KERNEL_LOAD_ADDRESS + mouse_x - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + mouse_next_x - _start)
 
     movzbl (KERNEL_LOAD_ADDRESS + mouse_packet + 2 - _start), %eax
     testb $0x20, %bl
@@ -145,7 +146,14 @@ mouse_y_delta_ready:
 mouse_y_zero:
     xorl %edx, %edx
 mouse_y_store:
-    movl %edx, (KERNEL_LOAD_ADDRESS + mouse_y - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + mouse_next_y - _start)
+    /* Commit both axes together. The previous cursor remains on screen during
+     * packet math, shrinking its invisible interval to the actual UI update. */
+    call hide_mouse_cursor
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + mouse_next_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + mouse_y - _start)
     call gui_handle_pointer_motion
 
 mouse_buttons_ready:
@@ -177,6 +185,9 @@ mouse_left_released:
     jz mouse_packet_complete
     call gui_handle_release
 mouse_packet_complete:
+    /* Redraw before returning to the polling loop. Click and drag handlers may
+     * compose a window, so this is the earliest safe final framebuffer state. */
+    call draw_mouse_cursor
     popal
     ret
 
@@ -275,6 +286,8 @@ mouse_shape:
 .align 4
 mouse_x: .long 512
 mouse_y: .long 384
+mouse_next_x: .long 512
+mouse_next_y: .long 384
 mouse_row_address: .long 0
 mouse_packet: .space 3
 mouse_packet_index: .byte 0

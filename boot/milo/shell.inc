@@ -2658,10 +2658,13 @@ gui_editor_click_column_marker:
     incl %eax
     jmp gui_editor_click_column_next
 gui_editor_click_set:
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    je gui_editor_click_unchanged
     movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     call render_editor
+gui_editor_click_unchanged:
     ret
 
 gui_file_click:
@@ -3796,7 +3799,7 @@ gui_window_editor_caption: .asciz "M.I.L.O WRITER"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.28.3"
+gui_overlay_version: .asciz "0.28.4"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -3824,7 +3827,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.28.3"
+gui_taskbar_version: .asciz "M.I.L.O V0.28.4"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -3860,7 +3863,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.28.3"
+gui_version_status: .asciz "KERNEL   0.28.4"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"

@@ -499,11 +499,36 @@ editor_insert_ready:
     jmp editor_mutation_complete
 
 editor_newline:
+    /* A new paragraph inherits the caret paragraph's alignment. Store the
+     * compact absolute marker immediately after the newline so persistence and
+     * later rendering use the same document bytes. */
+    movzbl (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start), %eax
+    addb $EDITOR_MARK_ALIGN_LEFT, %al
+    movb %al, (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start)
+    call editor_delete_selection
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
+    cmpb $EDITOR_MARK_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start)
+    je editor_newline_capacity_one
+    cmpl $(EDITOR_LIMIT - 1), %ecx
+    jae editor_too_large
+    jmp editor_newline_insert
+editor_newline_capacity_one:
     cmpl $EDITOR_LIMIT, %ecx
-    jae keyboard_poll
-    movb $'\n', %al
-    jmp editor_character
+    jae editor_too_large
+editor_newline_insert:
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    movb $'\n', %bl
+    call editor_insert_byte_at
+    incl (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+    cmpb $EDITOR_MARK_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start)
+    je editor_newline_complete
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %bl
+    call editor_insert_byte_at
+    incl (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+editor_newline_complete:
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
+    jmp editor_mutation_complete
 
 editor_toggle_bold:
     movb $EDITOR_MARK_BOLD, %al
@@ -4217,7 +4242,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.28.3\n"
+version_message: .asciz "M.I.L.O VERSION 0.28.4\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"

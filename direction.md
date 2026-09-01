@@ -163,6 +163,12 @@ Writer repaint still touched video memory incrementally. **V0.28.3** normalizes
 extensionless names to `.TXT`, adds visible keyboard and mouse selection,
 selection-aware styles, four paragraph alignments, and RAM-backed region
 presentation for routine Writer updates.
+Runtime verification accepted the editor features but found that the pointer
+still disappeared for too much of each movement packet and that Enter reset a
+new paragraph to left alignment. **V0.28.4** stages new pointer coordinates
+before erasing the old cursor, redraws before leaving the packet handler,
+suppresses same-cell selection repaint, and writes the current alignment marker
+after a newly inserted paragraph break.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -170,8 +176,8 @@ presentation for routine Writer updates.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.28.3 candidate kernel is 34,471 bytes; 48 KiB is reserved for
-  controlled growth, leaving 14,681 bytes in the current kernel region.
+- The V0.28.4 candidate kernel is 34,639 bytes; 48 KiB is reserved for
+  controlled growth, leaving 14,513 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
@@ -358,6 +364,15 @@ contract rather than compensating with per-screen coordinate offsets.
 - Compose routine Writer updates in RAM and copy only the completed Writer
   rectangle to video memory to remove the remaining incremental repaint flash.
 
+### V0.28.4 — stable pointer and inherited paragraph alignment
+
+- Keep the old software cursor visible while a complete PS/2 packet and its new
+  coordinates are decoded, then erase/commit/redraw at the last safe point.
+- Redraw the cursor inside the completed packet handler and avoid expensive
+  Writer repaints when a selection drag remains inside the same character cell.
+- When Enter creates a paragraph, inherit the active Left, Center, Right, or
+  Justified alignment and persist its marker directly in the saved document.
+
 ### V0.29 — low-resolution image viewing
 
 - Load and display a deliberately small indexed image format.
@@ -443,3 +458,4 @@ journal records intent and rationale.
 | `stabilize V0.28.1 Writer repaint` | Replaced full desktop recomposition on every Writer edit with a terminal-state-safe repaint of the frontmost Writer window, while retaining full composition for genuine desktop transitions. | Runtime typing showed the root and lower windows flickering through during back-to-front full-frame redraws; focused repaint removes that visible intermediate state without adding a large compositor or backbuffer. |
 | `polish V0.28.2 Writer and composition` | Added atomic RAM-backed full-frame presentation, repaired and exposed Writer's empty 8.3 name entry, and added persistent inline Bold/Italic/Underline keyboard and toolbar controls with styled rendering and plain Terminal output. | Runtime verification showed timed redraw flicker and a Save As field whose 12-byte default left no input capacity; useful offline document work also needed minimal formatting without importing a large document model. |
 | `add V0.28.3 Writer selection and layout` | Added automatic `.TXT` normalization, visible keyboard/mouse selection, selection-aware styles, persistent Left/Center/Right/Justified paragraph layout, and RAM-backed Writer-region presentation. | Runtime use showed extensionless Save As failure, no post-entry styling or alignment, and minor incremental redraw flicker; these changes make Writer useful without importing a document framework. |
+| `stabilize V0.28.4 pointer and paragraph flow` | Staged PS/2 coordinates before cursor erasure, redrew inside the packet handler, skipped same-cell Writer drag repaint, and made Enter persist the active paragraph alignment on the next line. | Runtime verification showed severe residual pointer flicker and alignment reverting to left after a paragraph break; both faults were in state-transition timing rather than the visible controls. |
