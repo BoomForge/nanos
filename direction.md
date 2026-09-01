@@ -415,7 +415,7 @@ contract rather than compensating with per-screen coordinate offsets.
   as the small lossless editable working format.
 - Keep dimensions and memory limits strict enough for the dedicated appliance.
 
-### V0.31 — image interchange and Mavica import
+### V0.31 — image interchange, deterministic M.I.L.O, and terminal expansion
 
 - Add uncompressed BMP read/write first because it requires little codec code
   and gives the editor a widely readable lossless interchange format.
@@ -425,9 +425,9 @@ contract rather than compensating with per-screen coordinate offsets.
 - Measure PNG decoding and JPEG encoding as optional modules rather than
   assuming either is small. Do not consume the remaining kernel budget merely
   to claim a file extension.
-
-### V0.32 — deeper deterministic M.I.L.O and terminal
-
+- Complete the image milestone and deeper M.I.L.O work as one integrated
+  release so imported files, application launching, errors, and natural command
+  requests are tested against the same Terminal and FileHound paths.
 - Expand Nyx-derived intent routing, bounded typo recovery, structural trait
   learning, canon response selection, and transparent explanations of actions.
 - Grow the command environment with discoverable help, aliases or macros,
@@ -435,7 +435,7 @@ contract rather than compensating with per-screen coordinate offsets.
 - Preserve deterministic, offline behaviour and never store operator sentences
   as learned personality data.
 
-### V0.33 — in-system application development
+### V0.32 — in-system application development
 
 - Define a tiny documented application ABI for windows, drawing, keyboard,
   files, and lifecycle events instead of allowing applications to depend on
@@ -446,7 +446,7 @@ contract rather than compensating with per-screen coordinate offsets.
   toolchain and unrestricted native kernel code are explicitly not the first
   target because they would be much larger and less recoverable.
 
-### V0.34 — sound and richer M.I.L.O state
+### V0.33 — sound and richer M.I.L.O state
 
 - Small PC-speaker or similarly minimal sound cues.
 - Ring states for idle, activity, success, warning, and M.I.L.O interaction.
@@ -524,3 +524,4 @@ journal records intent and rationale.
 | `stabilize V0.28.4 pointer and paragraph flow` | Staged PS/2 coordinates before cursor erasure, redrew inside the packet handler, skipped same-cell Writer drag repaint, and made Enter persist the active paragraph alignment on the next line. | Runtime verification showed severe residual pointer flicker and alignment reverting to left after a paragraph break; both faults were in state-transition timing rather than the visible controls. |
 | `add V0.29 keyboard shell and Pixel Viewer` | Added a no-blank fast-pointer handoff, corrected Writer drag anchoring, exposed the application menu and FileHound through the keyboard, and introduced a sixth resizable M16 V1 image-viewer window with a separate 8 KiB buffer, palette inspection, validation, errors, and a generated 96x64 fixture. | Complete the requested keyboard-first workflow, resolve the two remaining input defects, and begin the planned low-resolution image workstation without importing an image framework or risking open document data. |
 | `complete V0.29.1 keyboard window control` | Added standard `Alt+F9` minimize and `Alt+F4` close shortcuts for the focused application, retained Writer's dirty-document guard, and reordered the roadmap around native image editing, Mavica-oriented interchange, deterministic M.I.L.O/terminal expansion, and in-system application development. | Finish genuine keyboard-only desktop control and record the newly agreed priorities before the image editor begins. |
+| `combine V0.31 image and deterministic milestones` | Merged image interchange/Mavica import with deeper deterministic M.I.L.O and Terminal expansion as V0.31, then renumbered in-system development to V0.32 and sound/state work to V0.33. | Deliver the post-editor image and intelligence work as one coherent release using the same file, application, command, and error paths. |
