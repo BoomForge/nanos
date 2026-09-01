@@ -1016,7 +1016,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $904, %eax
+    movl $888, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -3257,7 +3257,7 @@ gui_window_editor_caption: .asciz "M.I.L.O WRITER"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.28"
+gui_overlay_version: .asciz "0.28.1"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -3285,7 +3285,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.28"
+gui_taskbar_version: .asciz "M.I.L.O V0.28.1"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -3313,7 +3313,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.28"
+gui_version_status: .asciz "KERNEL   0.28.1"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"

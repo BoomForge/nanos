@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.28 native desktop and Writer."""
+"""Static and binary checks for the V0.28.1 native desktop and Writer."""
 
 from pathlib import Path
 import re
@@ -68,13 +68,13 @@ def main():
         b"RIGHT CLICK // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.28",
+        b"M.I.L.O V0.28.1",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.28",
+        b"M.I.L.O VERSION 0.28.1",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"UNSAVED // CLOSE AGAIN",
@@ -127,11 +127,11 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $904, %eax\n    movl $708, %edx",
+        "movl $888, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 904 + len("M.I.L.O V0.28") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.28.1") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Five independent native application windows retain focus, stacking,
@@ -221,6 +221,14 @@ def main():
         "movl $1, %eax\n    ret\n\nwrite_no_space:",
     ):
         require(kernel_source, fragment)
+    editor_repaint = kernel_source[
+        kernel_source.index("render_editor:"):
+        kernel_source.index("calculate_text_position:")
+    ]
+    assert "call wm_render_window" in editor_repaint
+    assert "call gui_save_terminal_state" in editor_repaint
+    assert "call gui_restore_terminal_state" in editor_repaint
+    assert "call render_shell" not in editor_repaint
 
     # FileHound is a native FAT12-root adaptation: one compact pane, aligned
     # metadata columns, category markers, honest paging, and the real existing
@@ -372,7 +380,7 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.28 desktop contract: %d-byte kernel, held splash, RTC "
+        "M.I.L.O V0.28.1 desktop contract: %d-byte kernel, held splash, RTC "
         "taskbar, clipped resize, FileHound, Writer, terminal OK"
         % len(kernel)
     )

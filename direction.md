@@ -148,7 +148,10 @@ layouts and a size-aware Terminal viewport. Runtime resizing then exposed a
 shared clipped-text bug: coordinate checks overwrote the glyph byte before it
 was drawn. **V0.28** reloads the source byte at the draw boundary and adds a
 fifth native Writer window with a resize-derived viewport, mouse caret
-placement, verified Save and Save As, and guarded close.
+placement, verified Save and Save As, and guarded close. Runtime typing then
+showed that full desktop composition per character briefly exposed every lower
+layer. **V0.28.1** limits routine Writer edits to a front-window repaint while
+retaining full composition for actual desktop state changes.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -156,8 +159,8 @@ placement, verified Save and Save As, and guarded close.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.28 candidate kernel is 31,363 bytes; 32 KiB is reserved for
-  controlled growth, leaving 1,405 bytes in the current kernel region.
+- The V0.28.1 candidate kernel is 31,387 bytes; 32 KiB is reserved for
+  controlled growth, leaving 1,381 bytes in the current kernel region.
 - The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
@@ -312,6 +315,14 @@ contract rather than compensating with per-screen coordinate offsets.
 - Fix the shared clipped-glyph renderer so coordinates cannot replace source
   characters after a window resize.
 
+### V0.28.1 — stable Writer repaint
+
+- Repaint only the active frontmost Writer window for character insertion,
+  deletion, navigation, Save As input, and status changes.
+- Retain full desktop composition for opening, closing, moving, resizing,
+  minimizing, restoring, focus changes, and timed live-state refreshes.
+- Preserve and restore Terminal drawing state around the focused repaint.
+
 ### V0.29 — low-resolution image viewing
 
 - Load and display a deliberately small indexed image format.
@@ -394,3 +405,4 @@ journal records intent and rationale.
 | `add V0.27 live desktop status` | Silenced normal loader chatter until the persistent boot splash, added a CMOS-backed Australian clock, a right-aligned version/date/time block, a minimized-only restore taskbar, taskbar-aware workspace bounds, real application-state reporting, a rolling event-activity graph with one-second live recomposition, and a primary-branch M.I.L.O build/readme contract. | Make the native Fluxbox-like desktop more familiar and useful while keeping telemetry honest, the root workflow sparse, boot unmistakably M.I.L.O, and the implementation independent of Linux, Conky, an RTC service, a scheduler, or fake CPU statistics. |
 | `refine V0.27.1 splash and window resizing` | Added an RTC-backed minimum splash hold, a readable 0--120+ events/second graph, bounded bottom-right resize grips, client clipping, adaptive System/FileHound/Traits layouts, and a size-aware Terminal viewport. | Runtime proof showed that fast hardware hid the splash and ordinary input saturated the first graph scale; native resizing completes the expected classic window workflow without fake CPU telemetry or drawing outside application frames. |
 | `add V0.28 native Writer workspace` | Corrected clipped glyph emission, added a fifth resizable Writer window, routed FileHound Edit into it, added viewport scrolling and mouse caret placement, and connected Save, validated Save As, status feedback, and guarded close to the verified FAT12 path. | Runtime resizing exposed coordinate bytes being drawn as text, while useful document work required a native application rather than a terminal-shaped editor mode. |
+| `stabilize V0.28.1 Writer repaint` | Replaced full desktop recomposition on every Writer edit with a terminal-state-safe repaint of the frontmost Writer window, while retaining full composition for genuine desktop transitions. | Runtime typing showed the root and lower windows flickering through during back-to-front full-frame redraws; focused repaint removes that visible intermediate state without adding a large compositor or backbuffer. |

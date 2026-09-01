@@ -835,7 +835,13 @@ editor_close_now:
     ret
 
 render_editor:
-    call render_shell
+    /* Writer owns the frontmost window while it accepts input. Repaint only
+     * that window instead of exposing the root and lower z-order layers during
+     * a complete desktop composition for every character. */
+    call gui_save_terminal_state
+    movl $WM_EDITOR, %eax
+    call wm_render_window
+    call gui_restore_terminal_state
     ret
 
 /* EAX=text offset. Store one-based logical line and column. */
@@ -3822,7 +3828,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.28\n"
+version_message: .asciz "M.I.L.O VERSION 0.28.1\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"

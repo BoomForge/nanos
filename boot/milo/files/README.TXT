@@ -1,7 +1,7 @@
 M.I.L.O FAT12 STORAGE ONLINE
 
 This text is stored in a real FAT12 file on the boot floppy.
-V0.28 can reach the complete 1.44 MB volume, beyond the fast boot cache.
+V0.28.1 can reach the complete 1.44 MB volume, beyond the fast boot cache.
 Normal boot stays visually quiet until the M.I.L.O splash appears and remains
 visible for at least three seconds and through initialization. The native root
 desktop starts with a right-side live
@@ -19,7 +19,7 @@ or find machinery in README.TXT. Common action typos are tolerated.
 Just talk to M.I.L.O, or use milo TEXT. Use traits to inspect learning.
 
 The taskbar lists only minimized applications; click one to restore it. Its
-right edge shows V0.28 above the hardware RTC date and 24-hour local time.
+right edge shows V0.28.1 above the hardware RTC date and 24-hour local time.
 The overlay reports real event activity on a 0--120+ events/second graph,
 application
 states, RAM, FAT12 capacity, files, total input events, video, network, and
@@ -31,8 +31,9 @@ The windows can overlap, move, resize from the bottom-right grip, minimize,
 maximize, close, and reopen from the root menu. Application content remains
 clipped and adapts to the available client area. Terminal text survives
 movement, resizing, covering, minimizing, and restore.
-V0.28 also corrects the shared clipped-glyph path so client text stays readable
-while windows are resized.
+V0.28.1 also corrects the shared clipped-glyph path so client text stays
+readable while windows are resized, and repaints only Writer during typing so
+the desktop and lower windows do not flicker through between characters.
 The Fluxbox/Conky/FileHound-like workflow is entirely native M.I.L.O code: no
 Linux, Win32, Go, X11, external desktop runtime, network, or framework. Just
 tiny, useful machinery.
