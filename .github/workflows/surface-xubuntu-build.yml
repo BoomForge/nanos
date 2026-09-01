@@ -25,16 +25,11 @@ jobs:
           chmod +x surface-build/build-surface-xubuntu.sh
           chmod +x surface-build/inject-direct-installer.sh
 
-          # Inject the direct-install layer BEFORE the builder calculates
-          # manifests and repacks the live squashfs. This keeps the proven
-          # Surface/casper build path and removes Subiquity from installation.
           python3 - <<'PY'
           from pathlib import Path
           p = Path('surface-build/build-surface-xubuntu.sh')
           s = p.read_text()
 
-          # Ensure all disk/UEFI tools used by the text installer exist both
-          # in the live environment and in the copied target system.
           old = '  bluez libinput-tools xinput blueman onboard\n'
           new = ('  bluez libinput-tools xinput blueman onboard \\\n'
                  '  parted dosfstools grub-efi-amd64-bin grub-efi-amd64-signed shim-signed efibootmgr\n')
@@ -43,19 +38,16 @@ jobs:
           s = s.replace(old, new, 1)
 
           marker = 'log "Updating live manifests"\n'
-          injection = '''log "Injecting zero-input direct Surface installer"\n"$GITHUB_WORKSPACE/surface-build/inject-direct-installer.sh" \\\n  "$LIVE" "$ISO" "$STD_MERGED" "$FULL_MERGED"\n\n'''
+          injection = '''log "Injecting STRICT zero-input direct Surface installer"\n"$GITHUB_WORKSPACE/surface-build/inject-direct-installer.sh" \\\n  "$LIVE" "$ISO" "$STD_MERGED" "$FULL_MERGED"\n\n'''
           if marker not in s:
               raise SystemExit('Live-manifest marker not found')
           s = s.replace(marker, injection + marker, 1)
 
-          # The stock builder updates casper SHA256SUMS. Also regenerate the
-          # media MD5 list because GRUB and the live squashfs are now changed.
           marker2 = 'rm -f "$ISO/casper/SHA256SUMS.gpg"\n'
           extra = '''rm -f "$ISO/casper/SHA256SUMS.gpg"\n\nlog "Refreshing whole-media MD5 list"\n(\n  cd "$ISO"\n  find . -type f ! -name md5sum.txt ! -name boot.catalog -print0 \\\n    | sort -z | xargs -0 md5sum > md5sum.txt\n)\n'''
           if marker2 not in s:
               raise SystemExit('Casper checksum marker not found')
           s = s.replace(marker2, extra, 1)
-
           p.write_text(s)
           PY
 
@@ -70,7 +62,7 @@ jobs:
           sudo docker system prune -af || true
           df -h /
 
-      - name: Build Surface direct-install ISO
+      - name: Build Surface zero-input direct-install ISO
         shell: bash
         run: |
           set +e
@@ -84,9 +76,6 @@ jobs:
           INITRD="$ISO.initrd-report.txt"
 
           if (( rc != 0 )); then
-            # Older versions of the builder could return 32 from harmless
-            # final unmount cleanup after BUILD_COMPLETE. Accept that one
-            # code only when every expected output already exists.
             if (( rc == 32 )) && [[ -s "$ISO" && -s "$SHA" && -s "$BOOT" && -s "$INITRD" ]]; then
               echo 'Builder returned cleanup rc=32 after producing all outputs; continuing to hard validation.'
             else
@@ -95,7 +84,7 @@ jobs:
             fi
           fi
 
-      - name: Validate direct installer inside finished ISO
+      - name: Prove finished ISO cannot request text input
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -126,9 +115,12 @@ jobs:
           test -n "$first"
           sed -n "${first}p" "$VERIFY/grub.cfg" | grep -q 'INSTALL SURFACE PRO 4'
           grep -q '^set default=0$' "$VERIFY/grub.cfg"
-          grep -q '^set timeout=5$' "$VERIFY/grub.cfg"
+          grep -q '^set timeout_style=hidden$' "$VERIFY/grub.cfg"
+          grep -q '^set timeout=1$' "$VERIFY/grub.cfg"
           grep -q 'surface_direct_install=1' "$VERIFY/grub.cfg"
-          grep -q 'systemd.unit=multi-user.target' "$VERIFY/grub.cfg"
+          grep -q 'systemd.unit=surface-direct-install.target' "$VERIFY/grub.cfg"
+          grep -q 'systemd.getty_auto=no' "$VERIFY/grub.cfg"
+          ! grep -q 'systemd.unit=multi-user.target' "$VERIFY/grub.cfg"
 
           grep -q '^linux-image-surface ' "$VERIFY/standard.manifest"
           grep -q '^iptsd ' "$VERIFY/standard.manifest"
@@ -137,22 +129,45 @@ jobs:
 
           unsquashfs -cat "$VERIFY/live.squashfs" usr/local/sbin/surface-direct-install > "$VERIFY/installer.sh"
           unsquashfs -cat "$VERIFY/live.squashfs" etc/systemd/system/surface-direct-install.service > "$VERIFY/installer.service"
+          unsquashfs -cat "$VERIFY/live.squashfs" etc/systemd/system/surface-direct-install.target > "$VERIFY/installer.target"
+
           bash -n "$VERIFY/installer.sh"
+
+          # Installer process itself can never read from a terminal.
+          grep -q '^exec </dev/null$' "$VERIFY/installer.sh"
+          grep -q '^export DEBIAN_FRONTEND=noninteractive$' "$VERIFY/installer.sh"
+          ! grep -Eq '^[[:space:]]*(read|select)([[:space:]]|$)' "$VERIFY/installer.sh"
+          ! grep -Eq '\b(whiptail|dialog|debconf|passwd[[:space:]]+surface)\b' "$VERIFY/installer.sh"
+
+          # Every destructive command is explicitly noninteractive.
           grep -q 'parted -s.*mklabel gpt' "$VERIFY/installer.sh"
-          grep -q 'minimal.standard.squashfs' "$VERIFY/installer.sh"
+          grep -q 'mkfs.vfat -F 32' "$VERIFY/installer.sh"
+          grep -q 'mkfs.ext4 -F' "$VERIFY/installer.sh"
+          grep -q "echo 'surface:surface' | chpasswd" "$VERIFY/installer.sh"
+          grep -q 'DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a' "$VERIFY/installer.sh"
           grep -q 'grub-install --target=x86_64-efi' "$VERIFY/installer.sh"
+          grep -q -- '--no-nvram' "$VERIFY/installer.sh"
+          grep -q -- '--removable' "$VERIFY/installer.sh"
           grep -q 'autologin-user=surface' "$VERIFY/installer.sh"
           grep -q 'surface-onboard' "$VERIFY/installer.sh"
-          grep -q 'systemctl poweroff' "$VERIFY/installer.sh"
-          grep -q 'ConditionKernelCommandLine=surface_direct_install' "$VERIFY/installer.service"
+          grep -q 'systemctl poweroff --force --force' "$VERIFY/installer.sh"
 
-          echo 'DIRECT INSTALL ISO VALIDATION PASSED'
+          # Exact boot flag match: this fixes the v1 bug that left the Surface
+          # at a text login prompt instead of starting the installer.
+          grep -q '^ConditionKernelCommandLine=surface_direct_install=1$' "$VERIFY/installer.service"
+          grep -q '^StandardInput=null$' "$VERIFY/installer.service"
+          grep -q '^FailureAction=poweroff-force$' "$VERIFY/installer.service"
+          grep -q '^Requires=surface-direct-install.service$' "$VERIFY/installer.target"
+          ! grep -qi 'getty' "$VERIFY/installer.target"
+          ! grep -q 'WantedBy=multi-user.target' "$VERIFY/installer.service"
+
+          echo 'ZERO-INPUT DIRECT INSTALL ISO VALIDATION PASSED'
           echo "SHA256=$ACTUAL"
 
-      - name: Upload Surface direct-install ISO
+      - name: Upload Surface zero-input direct-install ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-DIRECT-INSTALL-v1
+          name: xubuntu-24.04.4-surface-pro-4-DIRECT-INSTALL-v2-ZERO-INPUT
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
