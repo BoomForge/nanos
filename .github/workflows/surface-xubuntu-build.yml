@@ -24,6 +24,28 @@ jobs:
           set -Eeuo pipefail
           chmod +x surface-build/build-surface-xubuntu.sh
           chmod +x surface-build/inject-direct-installer.sh
+          chmod +x surface-build/inject-initramfs-media.sh
+
+          # Pin the direct-install GRUB boot to the exact installer-media label.
+          # This gives casper a deterministic device path rather than relying on
+          # its generic block-device scan on the Surface Pro 4.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('surface-build/inject-direct-installer.sh')
+          s = p.read_text()
+          old = 'linux /casper/vmlinuz boot=casper surface_direct_install=1 systemd.unit=surface-direct-install.target systemd.getty_auto=no systemd.show_status=1 plymouth.enable=0 console=tty1 ---'
+          new = 'linux /casper/vmlinuz boot=casper ignore_uuid live-media=/dev/disk/by-label/XUBUNTU_SURFACE rootdelay=10 surface_direct_install=1 systemd.unit=surface-direct-install.target systemd.getty_auto=no systemd.show_status=1 plymouth.enable=0 console=tty1 ---'
+          if old not in s:
+              raise SystemExit('Direct-install GRUB kernel line changed unexpectedly')
+          s = s.replace(old, new, 1)
+          # Strengthen the script's own static validation for the new media pin.
+          anchor = "assert 'surface_direct_install=1' in boot\n"
+          extra = "assert 'surface_direct_install=1' in boot\nassert 'ignore_uuid' in boot\nassert 'live-media=/dev/disk/by-label/XUBUNTU_SURFACE' in boot\nassert 'rootdelay=10' in boot\n"
+          if anchor not in s:
+              raise SystemExit('Direct-install GRUB validation anchor missing')
+          s = s.replace(anchor, extra, 1)
+          p.write_text(s)
+          PY
 
           python3 - <<'PY'
           from pathlib import Path
@@ -37,6 +59,15 @@ jobs:
               raise SystemExit('Surface package install block changed unexpectedly')
           s = s.replace(old, new, 1)
 
+          # This must run BEFORE mkinitramfs. It installs an initramfs premount
+          # hook that waits for/verifies the USB and patches casper's failure
+          # path so the direct installer can never offer interactive netboot.
+          initrd_marker = 'log "Building a Surface-kernel initrd WITH Ubuntu casper"\n'
+          initrd_injection = '''log "Making initramfs Surface USB discovery strictly noninteractive"\n"$GITHUB_WORKSPACE/surface-build/inject-initramfs-media.sh" "$FULL_MERGED"\n\n'''
+          if initrd_marker not in s:
+              raise SystemExit('Surface initrd build marker not found')
+          s = s.replace(initrd_marker, initrd_injection + initrd_marker, 1)
+
           marker = 'log "Updating live manifests"\n'
           injection = '''log "Injecting STRICT zero-input direct Surface installer"\n"$GITHUB_WORKSPACE/surface-build/inject-direct-installer.sh" \\\n  "$LIVE" "$ISO" "$STD_MERGED" "$FULL_MERGED"\n\n'''
           if marker not in s:
@@ -48,11 +79,27 @@ jobs:
           if marker2 not in s:
               raise SystemExit('Casper checksum marker not found')
           s = s.replace(marker2, extra, 1)
+
+          # Extend the builder's initrd report so CI proves the actual generated
+          # initrd contains the Surface media hook, not merely the source tree.
+          report_anchor = '  echo "Surface module-tree entries:"\n  lsinitramfs "$LIVE_INITRD" | grep -F "lib/modules/$SURFACE_VER/" | head -n 60 || true\n'
+          report_extra = '''  echo "Surface module-tree entries:"\n  lsinitramfs "$LIVE_INITRD" | grep -F "lib/modules/$SURFACE_VER/" | head -n 60 || true\n  echo\n  echo "Surface direct-media initramfs entries:"\n  lsinitramfs "$LIVE_INITRD" | grep -E 'scripts/casper-premount/00surface-direct-media|usb-storage\\.ko|uas\\.ko|isofs\\.ko|squashfs\\.ko' || true\n'''
+          if report_anchor not in s:
+              raise SystemExit('Initrd report anchor not found')
+          s = s.replace(report_anchor, report_extra, 1)
+
+          validation_anchor = 'lsinitramfs "$LIVE_INITRD" | grep -qF "lib/modules/$SURFACE_VER/" \\\n  || die "Generated initrd does not contain Surface kernel modules"\n'
+          validation_extra = '''lsinitramfs "$LIVE_INITRD" | grep -qF "lib/modules/$SURFACE_VER/" \\\n  || die "Generated initrd does not contain Surface kernel modules"\nlsinitramfs "$LIVE_INITRD" | grep -q 'scripts/casper-premount/00surface-direct-media' \\\n  || die "Generated initrd does not contain Surface USB media-discovery hook"\n'''
+          if validation_anchor not in s:
+              raise SystemExit('Initrd validation anchor not found')
+          s = s.replace(validation_anchor, validation_extra, 1)
+
           p.write_text(s)
           PY
 
           bash -n surface-build/build-surface-xubuntu.sh
           bash -n surface-build/inject-direct-installer.sh
+          bash -n surface-build/inject-initramfs-media.sh
 
       - name: Free runner disk space
         shell: bash
@@ -84,7 +131,7 @@ jobs:
             fi
           fi
 
-      - name: Prove finished ISO cannot request text input
+      - name: Prove boot and installer are zero-input
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -103,11 +150,13 @@ jobs:
 
           grep -q 'scripts/casper' "$INITRD"
           grep -Eq 'lib/modules/[^/]*-surface[^/]*/' "$INITRD"
+          grep -q 'scripts/casper-premount/00surface-direct-media' "$INITRD"
           grep -q 'UEFI' "$BOOT"
           grep -q 'BIOS' "$BOOT"
 
           xorriso -osirrox on -indev "$ISO" \
             -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" \
+            -extract /casper/initrd "$VERIFY/initrd" \
             -extract /casper/minimal.standard.live.squashfs "$VERIFY/live.squashfs" \
             -extract /casper/minimal.standard.manifest "$VERIFY/standard.manifest" >/dev/null 2>&1
 
@@ -120,6 +169,9 @@ jobs:
           grep -q 'surface_direct_install=1' "$VERIFY/grub.cfg"
           grep -q 'systemd.unit=surface-direct-install.target' "$VERIFY/grub.cfg"
           grep -q 'systemd.getty_auto=no' "$VERIFY/grub.cfg"
+          grep -q 'ignore_uuid' "$VERIFY/grub.cfg"
+          grep -q 'live-media=/dev/disk/by-label/XUBUNTU_SURFACE' "$VERIFY/grub.cfg"
+          grep -q 'rootdelay=10' "$VERIFY/grub.cfg"
           ! grep -q 'systemd.unit=multi-user.target' "$VERIFY/grub.cfg"
 
           grep -q '^linux-image-surface ' "$VERIFY/standard.manifest"
@@ -127,19 +179,27 @@ jobs:
           grep -q '^libwacom-surface ' "$VERIFY/standard.manifest"
           grep -q '^onboard ' "$VERIFY/standard.manifest"
 
+          # Inspect the ACTUAL boot initrd. This is the layer where the netboot
+          # yes/no prompt happened on the physical Surface.
+          lsinitramfs "$VERIFY/initrd" | grep -q 'scripts/casper-premount/00surface-direct-media'
+          rm -rf "$VERIFY/initrd-unpacked"
+          mkdir -p "$VERIFY/initrd-unpacked"
+          unmkinitramfs "$VERIFY/initrd" "$VERIFY/initrd-unpacked"
+          grep -R -q 'Waiting for the installer USB. No input is required.' "$VERIFY/initrd-unpacked"
+          grep -R -q 'interactive netboot is disabled' "$VERIFY/initrd-unpacked"
+          grep -R -q 'XUBUNTU_SURFACE' "$VERIFY/initrd-unpacked"
+          grep -R -q 'exec </dev/null' "$VERIFY/initrd-unpacked"
+
           unsquashfs -cat "$VERIFY/live.squashfs" usr/local/sbin/surface-direct-install > "$VERIFY/installer.sh"
           unsquashfs -cat "$VERIFY/live.squashfs" etc/systemd/system/surface-direct-install.service > "$VERIFY/installer.service"
           unsquashfs -cat "$VERIFY/live.squashfs" etc/systemd/system/surface-direct-install.target > "$VERIFY/installer.target"
 
           bash -n "$VERIFY/installer.sh"
-
-          # Installer process itself can never read from a terminal.
           grep -q '^exec </dev/null$' "$VERIFY/installer.sh"
           grep -q '^export DEBIAN_FRONTEND=noninteractive$' "$VERIFY/installer.sh"
           ! grep -Eq '^[[:space:]]*(read|select)([[:space:]]|$)' "$VERIFY/installer.sh"
           ! grep -Eq '\b(whiptail|dialog|debconf|passwd[[:space:]]+surface)\b' "$VERIFY/installer.sh"
 
-          # Every destructive command is explicitly noninteractive.
           grep -q 'parted -s.*mklabel gpt' "$VERIFY/installer.sh"
           grep -q 'mkfs.vfat -F 32' "$VERIFY/installer.sh"
           grep -q 'mkfs.ext4 -F' "$VERIFY/installer.sh"
@@ -152,8 +212,6 @@ jobs:
           grep -q 'surface-onboard' "$VERIFY/installer.sh"
           grep -q 'systemctl poweroff --force --force' "$VERIFY/installer.sh"
 
-          # Exact boot flag match: this fixes the v1 bug that left the Surface
-          # at a text login prompt instead of starting the installer.
           grep -q '^ConditionKernelCommandLine=surface_direct_install=1$' "$VERIFY/installer.service"
           grep -q '^StandardInput=null$' "$VERIFY/installer.service"
           grep -q '^FailureAction=poweroff-force$' "$VERIFY/installer.service"
@@ -161,13 +219,13 @@ jobs:
           ! grep -qi 'getty' "$VERIFY/installer.target"
           ! grep -q 'WantedBy=multi-user.target' "$VERIFY/installer.service"
 
-          echo 'ZERO-INPUT DIRECT INSTALL ISO VALIDATION PASSED'
+          echo 'ZERO-INPUT BOOT + DIRECT INSTALL ISO VALIDATION PASSED'
           echo "SHA256=$ACTUAL"
 
       - name: Upload Surface zero-input direct-install ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-DIRECT-INSTALL-v2-ZERO-INPUT
+          name: xubuntu-24.04.4-surface-pro-4-DIRECT-INSTALL-v3-NO-NETBOOT-PROMPT
           path: |
             xubuntu-24.04.4-surface-pro-4-amd64.iso
             xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
