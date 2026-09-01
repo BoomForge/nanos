@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.29.1 provides:
+V0.30 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -30,9 +30,10 @@ V0.29.1 provides:
 - a corrected clipped-glyph path that keeps application text readable through
   window resizing, buffered Writer-region repainting, and full-frame buffered
   desktop composition to prevent lower layers flashing through;
-- a native M16 Pixel Viewer for validated 128x96-or-smaller, 16-colour indexed
-  images, including nearest-neighbour display, palette inspection, dimensions,
-  and explicit invalid/unsupported/load errors;
+- a native M16 Pixel Studio for validated 128x96-or-smaller, 16-colour indexed
+  images, with pencil/eraser drag, colour picker, bounded flood fill, line and
+  rectangle tools, palette selection, zoom, a pixel caret, one full-image undo,
+  New, verified FAT12 Save/Save As, automatic `.M16`, and guarded dirty close;
 - a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
   keyboard FileHound browsing, `Alt+F9` minimize, `Alt+F4` guarded close, and a
   30-entry command history; and
@@ -58,13 +59,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.29.1.img
+build/M.I.L.O-floppy-V0.30.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.1.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -85,7 +86,10 @@ date and time. M.I.L.O contains no network time client or timezone database.
 - Drag a non-maximized window's bottom-right grip to resize it.
 - Open Writer directly or choose Edit in FileHound for native document work.
 - In FileHound, use Up/Down to select, Left/Right to change pages, and Enter to
-  open. Opening `MILO.M16` launches the native Pixel Viewer.
+  open. Opening `MILO.M16` launches native Pixel Studio.
+- In Pixel Studio, use P/E/I/F/L/R for Pencil, Eraser, Picker, Fill, Line, and
+  Rectangle; arrows move the pixel caret, Enter draws, `[`/`]` changes colour,
+  `+`/`-` zooms, Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N creates a 64x48 canvas.
 - Select Writer text with Shift+Arrow or a mouse drag, then use Ctrl+B/I/U or
   the toolbar to style existing text. Ctrl+L/C/R/J applies paragraph alignment.
 - Typing automatically opens or restores Terminal.

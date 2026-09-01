@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.29.1 keyboard desktop and viewer."""
+"""Static and binary checks for the V0.30 keyboard desktop and Pixel Studio."""
 
 from pathlib import Path
 import re
@@ -18,6 +18,10 @@ CURSOR_NEXT_BACKING_END = (CURSOR_NEXT_BACKING +
                            CURSOR_WIDTH * CURSOR_HEIGHT * 4)
 IMAGE_BUFFER = 0x34000
 IMAGE_BUFFER_END = IMAGE_BUFFER + 8192
+IMAGE_UNDO_BUFFER = 0x36000
+IMAGE_UNDO_BUFFER_END = IMAGE_UNDO_BUFFER + 8192
+IMAGE_FILL_QUEUE = 0x38000
+IMAGE_FILL_QUEUE_END = IMAGE_FILL_QUEUE + 128 * 96 * 2
 FRAMEBUFFER_BACKING = 0x100000
 FRAMEBUFFER_BACKING_END = FRAMEBUFFER_BACKING + 1024 * 768 * 4
 
@@ -44,6 +48,8 @@ def main():
     assert "#define MOUSE_NEXT_BACKING_ADDRESS 0x33400" in kernel_source
     assert "#define IMAGE_BUFFER_ADDRESS 0x34000" in kernel_source
     assert "#define IMAGE_LIMIT 8192" in kernel_source
+    assert "#define IMAGE_UNDO_ADDRESS 0x36000" in kernel_source
+    assert "#define IMAGE_FILL_QUEUE_ADDRESS 0x38000" in kernel_source
     assert "#define GUI_FILE_ROWS 10" in kernel_source
     assert "#define MOUSE_MAX_X 1012" in kernel_source
     assert "#define MOUSE_MAX_Y 752" in kernel_source
@@ -53,6 +59,9 @@ def main():
     assert CURSOR_NEXT_BACKING_END == 0x33700
     assert CURSOR_NEXT_BACKING_END < IMAGE_BUFFER
     assert IMAGE_BUFFER_END == 0x36000
+    assert IMAGE_BUFFER_END == IMAGE_UNDO_BUFFER
+    assert IMAGE_UNDO_BUFFER_END == IMAGE_FILL_QUEUE
+    assert IMAGE_FILL_QUEUE_END == 0x3e000
     require(
         kernel_source,
         "call terminal_buffer_store_character\n    call draw_character",
@@ -81,22 +90,24 @@ def main():
         b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.29.1",
+        b"M.I.L.O V0.30",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.29.1",
+        b"M.I.L.O VERSION 0.30",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
         b"NAME (AUTO .TXT)",
         b"UNSAVED // CLOSE AGAIN",
-        b"M.I.L.O PIXEL VIEWER",
-        b"PIXEL VIEWER // INDEXED LOCAL IMAGE",
+        b"M.I.L.O PIXEL STUDIO",
+        b"PIXEL STUDIO // NATIVE INDEXED IMAGE",
         b"M16 V1 // 4-BIT INDEXED",
-        b"VIEW ONLY // PIXEL EDITING ARRIVES IN V0.30",
+        b"ARROWS MOVE // ENTER DRAW // [ ] COLOUR",
+        b"SAVE AS (AUTO .M16)",
+        b"UNSAVED // CLOSE AGAIN",
         b"SUPPORTED: M16 V1 // MAX 128X96 // 16 COLOURS",
     ):
         assert marker in kernel, marker
@@ -150,11 +161,11 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $888, %eax\n    movl $708, %edx",
+        "movl $904, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.29.1") * 8 == 1008
+    assert 904 + len("M.I.L.O V0.30") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Six independent native application windows retain focus, stacking,
@@ -387,9 +398,8 @@ def main():
     ):
         require(shell_source, fragment)
 
-    # V0.29 adds a read-only sixth application for the compact native M16 V1
-    # format. Its dedicated workspace cannot overwrite Writer's document
-    # buffer, and malformed or external formats produce explicit states.
+    # Pixel Studio edits compact M16 V1 in a dedicated fixed workspace. Its
+    # undo and fill buffers are bounded and cannot overwrite Writer.
     for fragment in (
         ".equ WM_IMAGE, 5",
         "gui_render_image_viewer:",
@@ -406,12 +416,32 @@ def main():
         "gui_image_invalid: .asciz \"INVALID OR TRUNCATED M16 IMAGE\"",
         "gui_image_unsupported: .asciz \"UNSUPPORTED IMAGE FORMAT OR DIMENSIONS\"",
         "gui_image_load_failed: .asciz \"FAT12 IMAGE READ FAILED\"",
+        "image_apply_tool:",
+        "image_paint_current_pixel:",
+        "image_flood_fill:",
+        "image_draw_line:",
+        "image_draw_rectangle:",
+        "image_begin_undo:",
+        "image_undo:",
+        "image_new:",
+        "image_save:",
+        "image_begin_save_as:",
+        "image_name_append_extension:",
+        "movb $'M', (KERNEL_LOAD_ADDRESS + image_save_as_name + 1 - _start)(,%ecx)",
+        "image_exit:",
+        "image_mouse_painting: .byte 0",
+        "image_default_palette:",
     ):
         require(shell_source, fragment)
     for fragment in (
         "load_entry_to_image_buffer:",
         "movl $IMAGE_BUFFER_ADDRESS, %edi",
         "cmpl $IMAGE_LIMIT, %eax",
+        "#define IMAGE_UNDO_ADDRESS 0x36000",
+        "#define IMAGE_FILL_QUEUE_ADDRESS 0x38000",
+        "keyboard_image_key:",
+        "keyboard_image_extended:",
+        "call image_handle_character",
     ):
         require(kernel_source, fragment)
 
@@ -563,8 +593,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.29.1 desktop contract: %d-byte kernel, no-blank pointer, "
-        "keyboard window controls, formatted Writer, FileHound, M16 viewer OK"
+        "M.I.L.O V0.30 desktop contract: %d-byte kernel, no-blank pointer, "
+        "keyboard windows, Writer, FileHound, native M16 Pixel Studio OK"
         % len(kernel)
     )
 

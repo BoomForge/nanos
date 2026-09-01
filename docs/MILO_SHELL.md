@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.29.1 extends the accepted V0.26 native root desktop. Its interaction model
+V0.30 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -29,7 +29,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Menu placement is clamped at the right edge and above the taskbar so the
   complete menu remains visible.
 - The compact menu opens System, FileHound, Traits, Terminal, Writer, or the
-  Pixel Viewer. Up/Down selects, Enter launches/restores, and Esc closes it.
+  Pixel Studio. Up/Down selects, Enter launches/restores, and Esc closes it.
 - `Alt+F9` minimizes the focused application and `Alt+F4` closes it. Writer
   continues to guard unsaved work through its existing second-close flow.
 - Clicking an application entry opens or restores its independent window and
@@ -46,7 +46,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.29.1` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.30` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -183,7 +183,7 @@ operation.
 
 ## File actions
 
-- **Open** launches the Pixel Viewer for `.M16`, gives clear unsupported errors
+- **Open** launches Pixel Studio for `.M16`, gives clear unsupported errors
   for common external image formats, or restores Terminal for ordinary files.
 - **Edit** opens Writer with the selected file and its 8,191-byte limit.
 - **Copy** and **Rename** request an explicit destination 8.3 filename, then
@@ -198,15 +198,28 @@ FileHound is keyboard-operable: Up/Down changes the selected row, Left/Right
 changes page, and Enter opens the selection. Combined with `F1`, every native
 application can be launched or restored without using the pointer.
 
-## Native Pixel Viewer
+## Native Pixel Studio
 
-V0.29 introduces M16 V1, a deliberately tiny uncompressed indexed format. Its
+M16 V1 is a deliberately tiny uncompressed indexed format. Its
 64-byte header stores `MI16`, version, palette count, 16-bit width/height, and
 sixteen RGB triples; the remaining bytes contain two four-bit pixels per byte.
 The viewer accepts 1--16 colours and dimensions up to 128x96, loads into a
 separate 8 KiB workspace so Writer remains intact, scales with crisp nearest-
 neighbour blocks, and displays the active palette and dimensions. `MILO.M16`
-is the built-in 96x64 verification image. Pixel editing is reserved for V0.30.
+is the built-in 96x64 verification image.
+
+V0.30 edits that same packed buffer directly. Pencil and eraser support mouse
+dragging; Picker changes the active palette index; Fill uses a bounded queue;
+Line and Rectangle use a two-Enter/two-click anchor; and `+`/`-` select integer
+zoom. A complete 8 KiB image snapshot at `0x36000` provides one real undo, and
+the fill queue at `0x38000` is sized exactly for the 128x96 format ceiling.
+New creates a fixed 64x48 canvas, while Save and Save As use the same verified
+FAT12 writer as Writer. Save As appends `.M16` when it is omitted. Dirty images
+require a second close, matching Writer's explicit loss guard.
+
+Pixel Studio is keyboard complete: P/E/I/F/L/R select the six tools, arrows
+move the caret, Enter or Space applies the active tool, `[`/`]` changes colour,
+Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N creates a new canvas.
 
 ## Mouse path
 
@@ -254,6 +267,6 @@ M16 validation/rendering, palette data, and cursor storage.
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.29.1.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

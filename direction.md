@@ -102,8 +102,8 @@ being proven in QEMU before a specific board or custom carrier is locked in.
 - Native FileHound-inspired FAT12 file browser with a clean single-pane
   location, metadata, selection, paging, and real-operation workflow.
 - Text editor and document viewer.
-- Low-resolution image viewer.
-- Pixel-level image editor with palette tools and floppy saving.
+- Low-resolution native image viewer and pixel editor.
+- Palette tools, bounded undo, and verified floppy saving.
 - Begin image support with a compact uncompressed indexed format. Mavica-style
   JPEG support is a later optional target because a correct JPEG decoder has a
   much larger implementation and memory cost.
@@ -182,6 +182,13 @@ failed FAT12 reads without disturbing an open Writer document.
 **V0.29.1** completes the top-level keyboard workflow with `Alt+F9` minimizing
 the focused application and `Alt+F4` closing it through the same guarded path
 as the title-bar control. Dirty Writer documents therefore remain protected.
+**V0.30** turns the accepted read-only viewer into native Pixel Studio. It edits
+the packed M16 buffer directly with Pencil, Eraser, Picker, bounded Fill, Line,
+Rectangle, palette and zoom controls, a keyboard pixel caret, and one fixed
+undo snapshot. New creates a strict 64x48 canvas; Save and Save As reuse the
+verified FAT12 writer, append `.M16` when needed, and protect dirty work with a
+second-close guard. The application remains independent from Writer and adds no
+heap, codec framework, external runtime, or Linux code.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -189,15 +196,17 @@ as the title-bar control. Dirty Writer documents therefore remain protected.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.29.1 candidate kernel is 37,871 bytes; 48 KiB is reserved for
-  controlled growth, leaving 11,281 bytes in the current kernel region.
+- The V0.30 candidate kernel is 41,879 bytes; 48 KiB is reserved for controlled
+  growth, leaving 7,273 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
-- Image viewing uses an independent fixed 8 KiB workspace at physical `0x34000`
-  so opening an image cannot overwrite Writer's 8,191-byte document buffer.
+- Image work uses an independent fixed 8 KiB buffer at physical `0x34000`, one
+  8 KiB undo snapshot at `0x36000`, and a 24 KiB fill queue at `0x38000`, so it
+  cannot overwrite Writer's 8,191-byte document buffer and all memory remains
+  bounded at the 128x96 M16 ceiling.
 - `MILO.MEM` stores a checksummed 24-byte structural personality profile.
 
 ## Release roadmap
@@ -525,3 +534,4 @@ journal records intent and rationale.
 | `add V0.29 keyboard shell and Pixel Viewer` | Added a no-blank fast-pointer handoff, corrected Writer drag anchoring, exposed the application menu and FileHound through the keyboard, and introduced a sixth resizable M16 V1 image-viewer window with a separate 8 KiB buffer, palette inspection, validation, errors, and a generated 96x64 fixture. | Complete the requested keyboard-first workflow, resolve the two remaining input defects, and begin the planned low-resolution image workstation without importing an image framework or risking open document data. |
 | `complete V0.29.1 keyboard window control` | Added standard `Alt+F9` minimize and `Alt+F4` close shortcuts for the focused application, retained Writer's dirty-document guard, and reordered the roadmap around native image editing, Mavica-oriented interchange, deterministic M.I.L.O/terminal expansion, and in-system application development. | Finish genuine keyboard-only desktop control and record the newly agreed priorities before the image editor begins. |
 | `combine V0.31 image and deterministic milestones` | Merged image interchange/Mavica import with deeper deterministic M.I.L.O and Terminal expansion as V0.31, then renumbered in-system development to V0.32 and sound/state work to V0.33. | Deliver the post-editor image and intelligence work as one coherent release using the same file, application, command, and error paths. |
+| `add V0.30 native Pixel Studio` | Replaced the read-only M16 viewer with a keyboard-complete native pixel editor providing Pencil, Eraser, Picker, bounded Fill, Line, Rectangle, palette and zoom controls, a visible pixel caret, one full-image undo, fixed-size New, verified Save/Save As with automatic `.M16`, and dirty-close protection. | Make low-resolution image work genuinely useful while editing the compact packed format directly, retaining strict fixed-memory limits, and reusing the already verified FAT12 persistence path. |

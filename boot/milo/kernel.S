@@ -31,6 +31,8 @@
 #define EDITOR_LIMIT 8191
 #define IMAGE_BUFFER_ADDRESS 0x34000
 #define IMAGE_LIMIT 8192
+#define IMAGE_UNDO_ADDRESS 0x36000
+#define IMAGE_FILL_QUEUE_ADDRESS 0x38000
 #define EDITOR_MARK_BOLD 2
 #define EDITOR_MARK_ITALIC 3
 #define EDITOR_MARK_UNDERLINE 4
@@ -136,6 +138,8 @@ keyboard_test_menu_shortcut:
     jne keyboard_menu_key
     cmpb $WM_FILES, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     je keyboard_filehound_key
+    cmpb $WM_IMAGE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    je keyboard_image_key
 
 keyboard_focus_dispatch:
     pushl %eax
@@ -210,6 +214,11 @@ keyboard_non_letter:
 keyboard_character_ready:
     testb %al, %al
     jz keyboard_poll
+    cmpb $WM_IMAGE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    jne keyboard_character_not_image
+    call image_handle_character
+    jmp keyboard_poll
+keyboard_character_not_image:
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     je terminal_character_ready
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
@@ -321,6 +330,57 @@ keyboard_filehound_open:
     call gui_action_open
     jmp keyboard_poll
 
+/* The native pixel workspace is intentionally keyboard complete. Arrow keys
+ * move the pixel caret; Enter/Space applies the selected tool. Character
+ * shortcuts are decoded through the normal Set-1 tables below. */
+keyboard_image_key:
+    cmpb $0x48, %al
+    je keyboard_image_up
+    cmpb $0x50, %al
+    je keyboard_image_down
+    cmpb $0x4b, %al
+    je keyboard_image_left
+    cmpb $0x4d, %al
+    je keyboard_image_right
+    cmpb $0x1c, %al
+    je keyboard_image_apply
+    cmpb $0x39, %al
+    je keyboard_image_apply
+    cmpb $0x0e, %al
+    je keyboard_image_backspace
+    cmpb $0x01, %al
+    je keyboard_image_escape
+    jmp keyboard_test_character
+keyboard_image_up:
+    movl $0, %eax
+    movl $-1, %edx
+    call image_move_cursor
+    jmp keyboard_poll
+keyboard_image_down:
+    movl $0, %eax
+    movl $1, %edx
+    call image_move_cursor
+    jmp keyboard_poll
+keyboard_image_left:
+    movl $-1, %eax
+    xorl %edx, %edx
+    call image_move_cursor
+    jmp keyboard_poll
+keyboard_image_right:
+    movl $1, %eax
+    xorl %edx, %edx
+    call image_move_cursor
+    jmp keyboard_poll
+keyboard_image_apply:
+    call image_keyboard_apply
+    jmp keyboard_poll
+keyboard_image_backspace:
+    call image_name_backspace
+    jmp keyboard_poll
+keyboard_image_escape:
+    call image_escape
+    jmp keyboard_poll
+
 terminal_character_ready:
     movl (KERNEL_LOAD_ADDRESS + input_length - _start), %ecx
     cmpl $INPUT_LIMIT, %ecx
@@ -354,6 +414,8 @@ keyboard_extended:
     jne keyboard_menu_extended
     cmpb $WM_FILES, (KERNEL_LOAD_ADDRESS + wm_active - _start)
     je keyboard_filehound_extended
+    cmpb $WM_IMAGE, (KERNEL_LOAD_ADDRESS + wm_active - _start)
+    je keyboard_image_extended
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     jne keyboard_editor_extended
     cmpb $0x48, %al
@@ -382,6 +444,17 @@ keyboard_filehound_extended:
     je keyboard_filehound_page_previous
     cmpb $0x51, %al
     je keyboard_filehound_page_next
+    jmp keyboard_poll
+
+keyboard_image_extended:
+    cmpb $0x48, %al
+    je keyboard_image_up
+    cmpb $0x50, %al
+    je keyboard_image_down
+    cmpb $0x4b, %al
+    je keyboard_image_left
+    cmpb $0x4d, %al
+    je keyboard_image_right
     jmp keyboard_poll
 
 keyboard_editor_extended:
@@ -4413,7 +4486,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.29.1\n"
+version_message: .asciz "M.I.L.O VERSION 0.30\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
