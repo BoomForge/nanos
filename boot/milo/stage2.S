@@ -7,17 +7,17 @@
 #define KERNEL_LOAD_ADDRESS 0x10000
 #define KERNEL_DISK_SECTOR 1
 #define KERNEL_DISK_HEAD 1
-#define KERNEL_SECTOR_COUNT 64
+#define KERNEL_SECTOR_COUNT 96
 #define FILESYSTEM_CACHE_SEGMENT 0x2000
 #define FILESYSTEM_CACHE_ADDRESS 0x20000
 #define FILESYSTEM_CACHE_SECTORS 128
 #define FILESYSTEM_ROOT_ADDRESS 0x22400
 #define FILESYSTEM_DATA_ADDRESS 0x24000
 #define FILESYSTEM_CACHED_DATA_CLUSTERS 96
-#define FILESYSTEM_TOTAL_DATA_CLUSTERS 2766
-#define FILESYSTEM_FIRST_CYLINDER 2
+#define FILESYSTEM_TOTAL_DATA_CLUSTERS 2734
+#define FILESYSTEM_FIRST_CYLINDER 3
 #define FILESYSTEM_FIRST_HEAD 0
-#define FILESYSTEM_FIRST_SECTOR 11
+#define FILESYSTEM_FIRST_SECTOR 7
 #define E820_FUNCTION 0xe820
 #define E820_MAGIC 0x534d4150
 #define E820_ENTRY_SIZE 24
@@ -97,7 +97,7 @@ filesystem_load_error:
     call print_string
     jmp stage2_complete
 
-/* Load the reserved 32 KiB M.I.L.O kernel region at physical 0x10000. */
+/* Load the reserved 48 KiB M.I.L.O kernel region at physical 0x10000. */
 load_kernel:
     movb $3, (STAGE2_LOAD_ADDRESS + disk_retries - _start)
 

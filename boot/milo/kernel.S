@@ -17,10 +17,10 @@
 #define BOOT_WRITE_SECTOR 44
 #define BOOT_READ_SECTOR 48
 #define BOOT_CACHED_DATA_CLUSTERS 52
-#define FAT1_LBA 82
-#define FAT2_LBA 91
-#define ROOT_LBA 100
-#define DATA_LBA 114
+#define FAT1_LBA 114
+#define FAT2_LBA 123
+#define ROOT_LBA 132
+#define DATA_LBA 146
 #define TERMINAL_COLUMNS 100
 #define TERMINAL_ROWS 25
 #define TERMINAL_BUFFER_ADDRESS 0x32800
@@ -32,9 +32,17 @@
 #define EDITOR_MARK_BOLD 2
 #define EDITOR_MARK_ITALIC 3
 #define EDITOR_MARK_UNDERLINE 4
+#define EDITOR_MARK_ALIGN_LEFT 5
+#define EDITOR_MARK_ALIGN_CENTER 6
+#define EDITOR_MARK_ALIGN_RIGHT 7
+#define EDITOR_MARK_ALIGN_JUSTIFY 8
 #define EDITOR_STYLE_BOLD 1
 #define EDITOR_STYLE_ITALIC 2
 #define EDITOR_STYLE_UNDERLINE 4
+#define EDITOR_ALIGN_LEFT 0
+#define EDITOR_ALIGN_CENTER 1
+#define EDITOR_ALIGN_RIGHT 2
+#define EDITOR_ALIGN_JUSTIFY 3
 #define DISK_BUFFER_ADDRESS 0x32000
 #define VERIFY_BUFFER_ADDRESS 0x32200
 #define MILO_MEMORY_SIZE 24
@@ -202,6 +210,26 @@ keyboard_character_ready:
     je editor_toggle_underline
     cmpb $'U', %al
     je editor_toggle_underline
+    cmpb $'a', %al
+    je editor_select_all
+    cmpb $'A', %al
+    je editor_select_all
+    cmpb $'l', %al
+    je editor_align_left
+    cmpb $'L', %al
+    je editor_align_left
+    cmpb $'c', %al
+    je editor_align_center
+    cmpb $'C', %al
+    je editor_align_center
+    cmpb $'r', %al
+    je editor_align_right
+    cmpb $'R', %al
+    je editor_align_right
+    cmpb $'j', %al
+    je editor_align_justify
+    cmpb $'J', %al
+    je editor_align_justify
     jmp keyboard_poll
 
 terminal_character_ready:
@@ -446,6 +474,9 @@ clear_input_complete:
     ret
 
 editor_character:
+    pushl %eax
+    call editor_delete_selection
+    popl %eax
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
     cmpl $EDITOR_LIMIT, %ecx
     jae keyboard_poll
@@ -465,11 +496,7 @@ editor_insert_ready:
     movl %ecx, (KERNEL_LOAD_ADDRESS + editor_length - _start)
     movl %edx, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
-    movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
-    call render_editor
-    jmp keyboard_poll
+    jmp editor_mutation_complete
 
 editor_newline:
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
@@ -480,13 +507,155 @@ editor_newline:
 
 editor_toggle_bold:
     movb $EDITOR_MARK_BOLD, %al
-    jmp editor_character
+    jmp editor_apply_format
 editor_toggle_italic:
     movb $EDITOR_MARK_ITALIC, %al
-    jmp editor_character
+    jmp editor_apply_format
 editor_toggle_underline:
     movb $EDITOR_MARK_UNDERLINE, %al
+    jmp editor_apply_format
+
+/* With no selection a style marker changes subsequent typing. With a visible
+ * selection, matching markers are wrapped around the existing bytes so the
+ * style can be applied after the text was written. */
+editor_apply_format:
+    movb %al, (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    cmpl $-1, %eax
+    je editor_format_at_caret
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    cmpl %edx, %eax
+    je editor_format_at_caret
+    jb editor_format_range_ready
+    xchgl %eax, %edx
+editor_format_range_ready:
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
+    cmpl $(EDITOR_LIMIT - 1), %ecx
+    jae editor_too_large
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_start - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + editor_selection_end - _start)
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %bl
+    call editor_insert_byte_at
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_start - _start), %edx
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %bl
+    call editor_insert_byte_at
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_start - _start), %eax
+    incl %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_end - _start), %eax
+    incl %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+    jmp editor_mutation_complete
+editor_format_at_caret:
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %al
     jmp editor_character
+
+editor_select_all:
+    movl $0, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+    call render_editor
+    jmp keyboard_poll
+
+editor_align_left:
+    movb $EDITOR_MARK_ALIGN_LEFT, %al
+    jmp editor_apply_alignment
+editor_align_center:
+    movb $EDITOR_MARK_ALIGN_CENTER, %al
+    jmp editor_apply_alignment
+editor_align_right:
+    movb $EDITOR_MARK_ALIGN_RIGHT, %al
+    jmp editor_apply_alignment
+editor_align_justify:
+    movb $EDITOR_MARK_ALIGN_JUSTIFY, %al
+
+/* Alignment is paragraph-scoped. Apply the requested absolute alignment
+ * marker at the start of every paragraph touched by the selection, or at the
+ * caret's paragraph when there is no selection. */
+editor_apply_alignment:
+    movb %al, (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    cmpl $-1, %eax
+    je editor_alignment_caret_range
+    cmpl %edx, %eax
+    je editor_alignment_caret_range
+    jb editor_alignment_range_ready
+    xchgl %eax, %edx
+editor_alignment_range_ready:
+    cmpl %eax, %edx
+    jbe editor_alignment_find_start
+    cmpb $'\n', (EDITOR_BUFFER_ADDRESS - 1)(,%edx)
+    jne editor_alignment_find_start
+    decl %edx
+    jmp editor_alignment_find_start
+editor_alignment_caret_range:
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    movl %eax, %edx
+editor_alignment_find_start:
+    testl %eax, %eax
+    jz editor_alignment_start_ready
+    cmpb $'\n', (EDITOR_BUFFER_ADDRESS - 1)(,%eax)
+    je editor_alignment_start_ready
+    decl %eax
+    jmp editor_alignment_find_start
+editor_alignment_start_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_alignment_position - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
+editor_alignment_find_end:
+    cmpl %ecx, %edx
+    jae editor_alignment_end_ready
+    cmpb $'\n', EDITOR_BUFFER_ADDRESS(,%edx)
+    je editor_alignment_end_ready
+    incl %edx
+    jmp editor_alignment_find_end
+editor_alignment_end_ready:
+    movl %edx, (KERNEL_LOAD_ADDRESS + editor_alignment_end - _start)
+editor_alignment_line_next:
+    movl (KERNEL_LOAD_ADDRESS + editor_alignment_position - _start), %edx
+    movb EDITOR_BUFFER_ADDRESS(,%edx), %al
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %al
+    jb editor_alignment_insert
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %al
+    ja editor_alignment_insert
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %al
+    movb %al, EDITOR_BUFFER_ADDRESS(,%edx)
+    jmp editor_alignment_find_next_line
+editor_alignment_insert:
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
+    cmpl $EDITOR_LIMIT, %eax
+    jae editor_too_large
+    movb (KERNEL_LOAD_ADDRESS + editor_pending_marker - _start), %bl
+    call editor_insert_byte_at
+    incl (KERNEL_LOAD_ADDRESS + editor_alignment_end - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    cmpl %edx, %eax
+    jb editor_alignment_anchor_adjust
+    incl %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+editor_alignment_anchor_adjust:
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    cmpl $-1, %eax
+    je editor_alignment_find_next_line
+    cmpl %edx, %eax
+    jb editor_alignment_find_next_line
+    incl %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+editor_alignment_find_next_line:
+    movl (KERNEL_LOAD_ADDRESS + editor_alignment_position - _start), %eax
+editor_alignment_scan_newline:
+    cmpl (KERNEL_LOAD_ADDRESS + editor_alignment_end - _start), %eax
+    jae editor_mutation_complete
+    cmpb $'\n', EDITOR_BUFFER_ADDRESS(,%eax)
+    je editor_alignment_next_ready
+    incl %eax
+    jmp editor_alignment_scan_newline
+editor_alignment_next_ready:
+    incl %eax
+    cmpl (KERNEL_LOAD_ADDRESS + editor_alignment_end - _start), %eax
+    ja editor_mutation_complete
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_alignment_position - _start)
+    jmp editor_alignment_line_next
 
 editor_name_character:
     movzbl (KERNEL_LOAD_ADDRESS + editor_name_length - _start), %ecx
@@ -519,6 +688,32 @@ editor_name_cancel:
     jmp keyboard_poll
 
 editor_name_commit:
+    /* FAT12 uses 8.3 names. If the operator omits an extension, normalize the
+     * first eight base characters and append .TXT automatically. */
+    movzbl (KERNEL_LOAD_ADDRESS + editor_name_length - _start), %ecx
+    testl %ecx, %ecx
+    jz editor_name_invalid
+    xorl %eax, %eax
+editor_name_find_dot:
+    cmpl %ecx, %eax
+    jae editor_name_append_text
+    cmpb $'.', (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)(,%eax)
+    je editor_name_validate
+    incl %eax
+    jmp editor_name_find_dot
+editor_name_append_text:
+    cmpl $8, %ecx
+    jbe editor_name_base_ready
+    movl $8, %ecx
+editor_name_base_ready:
+    movb $'.', (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)(,%ecx)
+    movb $'T', (KERNEL_LOAD_ADDRESS + editor_save_as_name + 1 - _start)(,%ecx)
+    movb $'X', (KERNEL_LOAD_ADDRESS + editor_save_as_name + 2 - _start)(,%ecx)
+    movb $'T', (KERNEL_LOAD_ADDRESS + editor_save_as_name + 3 - _start)(,%ecx)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_as_name + 4 - _start)(,%ecx)
+    addl $4, %ecx
+    movb %cl, (KERNEL_LOAD_ADDRESS + editor_name_length - _start)
+editor_name_validate:
     movl $(KERNEL_LOAD_ADDRESS + editor_save_as_name - _start), %esi
     call build_fat_name
     testl %eax, %eax
@@ -535,6 +730,9 @@ editor_name_invalid:
     jmp keyboard_poll
 
 editor_backspace:
+    call editor_delete_selection
+    testl %eax, %eax
+    jnz editor_mutation_complete
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
     testl %edx, %edx
     jz keyboard_poll
@@ -551,13 +749,12 @@ editor_delete_shift:
     movl %ecx, (KERNEL_LOAD_ADDRESS + editor_length - _start)
     movl %edx, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
-    movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
-    movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
-    call render_editor
-    jmp keyboard_poll
+    jmp editor_mutation_complete
 
 editor_delete_current:
+    call editor_delete_selection
+    testl %eax, %eax
+    jnz editor_mutation_complete
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
     cmpl %ecx, %edx
@@ -572,13 +769,86 @@ editor_forward_delete_shift:
     decl %ecx
     movl %ecx, (KERNEL_LOAD_ADDRESS + editor_length - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
+    jmp editor_mutation_complete
+
+editor_mutation_complete:
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
     call render_editor
     jmp keyboard_poll
+editor_too_large:
+    movb $5, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
+    call render_editor
+    jmp keyboard_poll
+
+/* Delete the selected raw byte range. EAX returns one when bytes changed. */
+editor_delete_selection:
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    cmpl $-1, %eax
+    je editor_delete_selection_none
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    cmpl %edx, %eax
+    je editor_delete_selection_none
+    jb editor_delete_selection_ordered
+    xchgl %eax, %edx
+editor_delete_selection_ordered:
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_start - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + editor_selection_end - _start)
+    movl %edx, %esi
+    addl $EDITOR_BUFFER_ADDRESS, %esi
+    movl %eax, %edi
+    addl $EDITOR_BUFFER_ADDRESS, %edi
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
+    subl %edx, %ecx
+    incl %ecx
+    rep movsb
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_end - _start), %edx
+    subl (KERNEL_LOAD_ADDRESS + editor_selection_start - _start), %edx
+    subl %edx, (KERNEL_LOAD_ADDRESS + editor_length - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_start - _start), %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
+    movl $1, %eax
+    ret
+editor_delete_selection_none:
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    xorl %eax, %eax
+    ret
+
+/* Insert BL at raw offset EDX. Callers reserve capacity first. */
+editor_insert_byte_at:
+    movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
+    movl %ecx, %edi
+editor_insert_byte_shift:
+    movb EDITOR_BUFFER_ADDRESS(,%edi), %al
+    movb %al, (EDITOR_BUFFER_ADDRESS + 1)(,%edi)
+    cmpl %edx, %edi
+    je editor_insert_byte_ready
+    decl %edi
+    jmp editor_insert_byte_shift
+editor_insert_byte_ready:
+    movb %bl, EDITOR_BUFFER_ADDRESS(,%edx)
+    incl (KERNEL_LOAD_ADDRESS + editor_length - _start)
+    ret
+
+/* Shift navigation extends the selection; ordinary navigation clears it. */
+editor_prepare_selection:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + shift_pressed - _start)
+    je editor_clear_selection
+    cmpl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    jne editor_prepare_selection_complete
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+editor_prepare_selection_complete:
+    ret
+editor_clear_selection:
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    ret
 
 editor_cursor_home:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
 editor_home_previous:
     testl %eax, %eax
@@ -594,6 +864,7 @@ editor_home_set:
     jmp keyboard_poll
 
 editor_cursor_end:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + editor_length - _start), %ecx
 editor_end_next:
@@ -610,6 +881,7 @@ editor_end_set:
     jmp keyboard_poll
 
 editor_cursor_left:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     testl %eax, %eax
     jz keyboard_poll
@@ -620,6 +892,7 @@ editor_cursor_left:
     jmp keyboard_poll
 
 editor_cursor_right:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     cmpl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
     jae keyboard_poll
@@ -631,6 +904,7 @@ editor_cursor_right:
 
 /* Move to the same logical column on the preceding newline-delimited row. */
 editor_cursor_up:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl %eax, %edx
 editor_up_find_start:
@@ -669,6 +943,7 @@ editor_up_set:
 
 /* Move to the same logical column on the following newline-delimited row. */
 editor_cursor_down:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl %eax, %edx
 editor_down_find_start:
@@ -721,6 +996,7 @@ editor_down_set:
 
 /* Move seven logical lines while retaining the current text column. */
 editor_page_up:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl %eax, %edx
 editor_page_up_find_start:
@@ -751,6 +1027,7 @@ editor_page_up_ready:
     jmp editor_page_position
 
 editor_page_down:
+    call editor_prepare_selection
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     movl %eax, %edx
 editor_page_down_find_start:
@@ -851,13 +1128,15 @@ editor_close_now:
     ret
 
 render_editor:
-    /* Writer owns the frontmost window while it accepts input. Repaint only
-     * that window instead of exposing the root and lower z-order layers during
-     * a complete desktop composition for every character. */
+    /* Compose Writer in RAM, then copy only its completed rectangle. This
+     * keeps typing and selection repaint atomic without copying 3 MiB for
+     * every caret movement. */
     call gui_save_terminal_state
+    call wm_begin_composition
     movl $WM_EDITOR, %eax
     call wm_render_window
     call gui_restore_terminal_state
+    call wm_present_editor_region
     ret
 
 /* EAX=text offset. Store one-based logical line and column. */
@@ -876,6 +1155,11 @@ text_position_next:
     je text_position_advance
     cmpb $EDITOR_MARK_UNDERLINE, %al
     je text_position_advance
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %al
+    jb text_position_test_newline
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %al
+    jbe text_position_advance
+text_position_test_newline:
     cmpb $'\n', %al
     jne text_position_character
     incl %edx
@@ -2737,6 +3021,8 @@ editor_name_copied:
     movl $0, (KERNEL_LOAD_ADDRESS + editor_length - _start)
     movl $0, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
@@ -2770,6 +3056,8 @@ editor_open_with_status:
     movb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_active - _start)
     movl $WM_EDITOR, %eax
     jmp wm_open_selected
@@ -3622,6 +3910,11 @@ emit_character:
     je emit_complete
     cmpb $EDITOR_MARK_UNDERLINE, %al
     je emit_complete
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %al
+    jb emit_test_newline
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %al
+    jbe emit_complete
+emit_test_newline:
     cmpb $'\n', %al
     je emit_newline
     movl (KERNEL_LOAD_ADDRESS + terminal_right - _start), %edx
@@ -3924,7 +4217,7 @@ help_message:
     .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
     .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.28.2\n"
+version_message: .asciz "M.I.L.O VERSION 0.28.3\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4167,6 +4460,11 @@ write_length_override: .long -1
 editor_length: .long 0
 editor_cursor: .long 0
 editor_preferred_column: .long -1
+editor_selection_anchor: .long -1
+editor_selection_start: .long 0
+editor_selection_end: .long 0
+editor_alignment_position: .long 0
+editor_alignment_end: .long 0
 editor_screen_x: .long 0
 editor_screen_y: .long 0
 terminal_left: .long 184
@@ -4214,6 +4512,10 @@ editor_dirty: .byte 0
 editor_render_character: .byte 0
 editor_render_style: .byte 0
 editor_cursor_style: .byte 0
+editor_cursor_alignment: .byte EDITOR_ALIGN_LEFT
+editor_render_alignment: .byte EDITOR_ALIGN_LEFT
+editor_pending_marker: .byte 0
+editor_mouse_selecting: .byte 0
 editor_name_mode: .byte 0
 editor_name_length: .byte 0
 editor_save_status: .byte 0

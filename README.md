@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.28.2 provides:
+V0.28.3 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -24,10 +24,11 @@ V0.28.2 provides:
   and honest unsupported-sensor reporting;
 - native FileHound-inspired FAT12 browsing and real open/edit/copy/rename/delete;
 - a fifth native Writer window with resize-aware text, mouse caret placement,
-  a visible 8.3 name field, Save/Save As, guarded close, and compact persistent
-  Bold, Italic, and Underline formatting;
+  Save/Save As with automatic `.TXT` extension handling, guarded close,
+  keyboard and mouse text selection, compact persistent Bold/Italic/Underline,
+  and Left/Center/Right/Justified paragraph alignment;
 - a corrected clipped-glyph path that keeps application text readable through
-  window resizing, focused Writer keystroke repainting, and full-frame buffered
+  window resizing, buffered Writer-region repainting, and full-frame buffered
   desktop composition to prevent lower layers flashing through, plus a
   30-entry command history; and
 - Nyx-derived deterministic pattern and trait learning without phrase storage.
@@ -52,13 +53,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.28.2.img
+build/M.I.L.O-floppy-V0.28.3.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.2.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.3.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -75,8 +76,8 @@ date and time. M.I.L.O contains no network time client or timezone database.
 - Minimize a window to place it on the taskbar; click its button to restore it.
 - Drag a non-maximized window's bottom-right grip to resize it.
 - Open Writer directly or choose Edit in FileHound for native document work.
-- Use Ctrl+B, Ctrl+I, and Ctrl+U (or the B/I/U toolbar buttons) to toggle
-  formatting at the Writer caret.
+- Select Writer text with Shift+Arrow or a mouse drag, then use Ctrl+B/I/U or
+  the toolbar to style existing text. Ctrl+L/C/R/J applies paragraph alignment.
 - Typing automatically opens or restores Terminal.
 - File-changing operations remain explicit and guarded.
 

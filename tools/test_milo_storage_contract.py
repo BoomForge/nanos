@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the V0.28.2 boot layout, splash hold, and FAT12 fixture."""
+"""Audit the V0.28.3 boot layout, splash hold, and FAT12 fixture."""
 
 from pathlib import Path
 import struct
@@ -8,9 +8,9 @@ import sys
 
 SECTOR_SIZE = 512
 IMAGE_SIZE = 1440 * 1024
-EXPECTED_RESERVED = 82
+EXPECTED_RESERVED = 114
 KERNEL_START_SECTOR = 18
-KERNEL_RESERVED_SECTORS = 64
+KERNEL_RESERVED_SECTORS = 96
 FAR_TEST_CLUSTER = 130
 
 
@@ -56,7 +56,7 @@ def main():
     kernel = Path(sys.argv[3]).read_bytes()
     stage2_source = Path(sys.argv[4]).read_text()
     assert len(image) == IMAGE_SIZE, len(image)
-    assert image[3:11] == b"MILO28.2", image[3:11]
+    assert image[3:11] == b"MILO28.3", image[3:11]
     assert b"M.I.L.O stage 1 online" not in image
     assert b"M.I.L.O stage 2 online" not in image
     assert b"M.I.L.O SYSTEM INITIALISING..." in image
@@ -75,7 +75,7 @@ def main():
     assert len(kernel) <= KERNEL_RESERVED_SECTORS * SECTOR_SIZE
     kernel_offset = KERNEL_START_SECTOR * SECTOR_SIZE
     assert image[kernel_offset:kernel_offset + len(kernel)] == kernel
-    assert b"M.I.L.O VERSION 0.28.2" in kernel
+    assert b"M.I.L.O VERSION 0.28.3" in kernel
 
     for fragment in (
         "call render_status\n    call hold_splash_minimum",
@@ -94,8 +94,8 @@ def main():
     root_sector = reserved + fat_count * sectors_per_fat
     data_sector = root_sector + root_sectors
     data_clusters = total_sectors - data_sector
-    assert (fat1_sector, fat2_sector, root_sector, data_sector) == (82, 91, 100, 114)
-    assert data_clusters == 2766
+    assert (fat1_sector, fat2_sector, root_sector, data_sector) == (114, 123, 132, 146)
+    assert data_clusters == 2734
 
     fat_size = sectors_per_fat * SECTOR_SIZE
     fat1 = image[fat1_sector * SECTOR_SIZE:fat1_sector * SECTOR_SIZE + fat_size]

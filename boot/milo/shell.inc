@@ -92,6 +92,52 @@ wm_present_composition:
     popal
     ret
 
+/* Present only the completed Writer rectangle after a focused repaint. The
+ * six-pixel margin includes its shadow and resize grip. */
+wm_present_editor_region:
+    pushal
+    movl (KERNEL_LOAD_ADDRESS + wm_physical_framebuffer - _start), %edi
+    movl %edi, BOOT_FRAMEBUFFER(%ebp)
+    movl (KERNEL_LOAD_ADDRESS + wm_x + WM_EDITOR * 4 - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_y + WM_EDITOR * 4 - _start), %ebx
+    movl (KERNEL_LOAD_ADDRESS + wm_w + WM_EDITOR * 4 - _start), %ecx
+    addl $6, %ecx
+    movl $1024, %edx
+    subl %eax, %edx
+    cmpl %edx, %ecx
+    jbe wm_present_editor_width_ready
+    movl %edx, %ecx
+wm_present_editor_width_ready:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_present_width - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_h + WM_EDITOR * 4 - _start), %ecx
+    addl $6, %ecx
+    movl $768, %edx
+    subl %ebx, %edx
+    cmpl %edx, %ecx
+    jbe wm_present_editor_height_ready
+    movl %edx, %ecx
+wm_present_editor_height_ready:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + wm_present_height - _start)
+    imull BOOT_PITCH(%ebp), %ebx
+    shll $2, %eax
+    addl %eax, %ebx
+    movl $WM_BACKBUFFER_ADDRESS, %esi
+    addl %ebx, %esi
+    movl BOOT_FRAMEBUFFER(%ebp), %edi
+    addl %ebx, %edi
+wm_present_editor_row:
+    movl (KERNEL_LOAD_ADDRESS + wm_present_width - _start), %ecx
+    rep movsl
+    movl $1024, %eax
+    subl (KERNEL_LOAD_ADDRESS + wm_present_width - _start), %eax
+    shll $2, %eax
+    addl %eax, %esi
+    addl %eax, %edi
+    decl (KERNEL_LOAD_ADDRESS + wm_present_height - _start)
+    jnz wm_present_editor_row
+    popal
+    ret
+
 wm_initialize:
     movb $WM_HOME, (KERNEL_LOAD_ADDRESS + wm_z_order + 0 - _start)
     movb $WM_FILES, (KERNEL_LOAD_ADDRESS + wm_z_order + 1 - _start)
@@ -1368,10 +1414,28 @@ gui_editor_rows_ready:
 
     movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     call calculate_text_position
+    /* Cache an ordered raw-byte selection range for the glyph renderer. */
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %edx
+    cmpl $-1, %eax
+    je gui_editor_no_selection
+    cmpl %edx, %eax
+    je gui_editor_no_selection
+    jb gui_editor_selection_ready
+    xchgl %eax, %edx
+gui_editor_selection_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_start - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + editor_selection_end - _start)
+    jmp gui_editor_selection_complete
+gui_editor_no_selection:
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_start - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_end - _start)
+gui_editor_selection_complete:
     /* Resolve the formatting state at the caret. Formatting is represented by
-     * three single-byte toggles inside the document and consumes no columns. */
+     * compact control bytes inside the document and consumes no columns. */
     xorl %eax, %eax
     xorl %edx, %edx
+    xorl %ecx, %ecx
 gui_editor_cursor_style_next:
     cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
     jae gui_editor_cursor_style_ready
@@ -1385,13 +1449,39 @@ gui_editor_cursor_style_italic:
     xorb $EDITOR_STYLE_ITALIC, %dl
 gui_editor_cursor_style_underline:
     cmpb $EDITOR_MARK_UNDERLINE, %bl
-    jne gui_editor_cursor_style_advance
+    jne gui_editor_cursor_alignment_left
     xorb $EDITOR_STYLE_UNDERLINE, %dl
+    jmp gui_editor_cursor_style_advance
+gui_editor_cursor_alignment_left:
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %bl
+    jne gui_editor_cursor_alignment_center
+    movb $EDITOR_ALIGN_LEFT, %cl
+    jmp gui_editor_cursor_style_advance
+gui_editor_cursor_alignment_center:
+    cmpb $EDITOR_MARK_ALIGN_CENTER, %bl
+    jne gui_editor_cursor_alignment_right
+    movb $EDITOR_ALIGN_CENTER, %cl
+    jmp gui_editor_cursor_style_advance
+gui_editor_cursor_alignment_right:
+    cmpb $EDITOR_MARK_ALIGN_RIGHT, %bl
+    jne gui_editor_cursor_alignment_justify
+    movb $EDITOR_ALIGN_RIGHT, %cl
+    jmp gui_editor_cursor_style_advance
+gui_editor_cursor_alignment_justify:
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %bl
+    jne gui_editor_cursor_alignment_newline
+    movb $EDITOR_ALIGN_JUSTIFY, %cl
+    jmp gui_editor_cursor_style_advance
+gui_editor_cursor_alignment_newline:
+    cmpb $'\n', %bl
+    jne gui_editor_cursor_style_advance
+    movb $EDITOR_ALIGN_LEFT, %cl
 gui_editor_cursor_style_advance:
     incl %eax
     jmp gui_editor_cursor_style_next
 gui_editor_cursor_style_ready:
     movb %dl, (KERNEL_LOAD_ADDRESS + editor_cursor_style - _start)
+    movb %cl, (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start)
     movl (KERNEL_LOAD_ADDRESS + text_position_column - _start), %eax
     decl %eax
     xorl %edx, %edx
@@ -1499,6 +1589,47 @@ gui_editor_italic_face_ready:
 gui_editor_underline_face_ready:
     call gui_draw_small_button
 
+    movl $632, %eax
+    movl $104, %ebx
+    movl $20, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_editor_left_label - _start), %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    cmpb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start)
+    jne gui_editor_left_face_ready
+    movl $GUI_COLOR_PINK, %esi
+gui_editor_left_face_ready:
+    call gui_draw_small_button
+    movl $656, %eax
+    movl $104, %ebx
+    movl $20, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_editor_center_label - _start), %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    cmpb $EDITOR_ALIGN_CENTER, (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start)
+    jne gui_editor_center_face_ready
+    movl $GUI_COLOR_PINK, %esi
+gui_editor_center_face_ready:
+    call gui_draw_small_button
+    movl $680, %eax
+    movl $104, %ebx
+    movl $20, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_editor_right_label - _start), %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    cmpb $EDITOR_ALIGN_RIGHT, (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start)
+    jne gui_editor_right_face_ready
+    movl $GUI_COLOR_PINK, %esi
+gui_editor_right_face_ready:
+    call gui_draw_small_button
+    movl $704, %eax
+    movl $104, %ebx
+    movl $20, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_editor_justify_label - _start), %edx
+    movl $GUI_COLOR_CLASSIC, %esi
+    cmpb $EDITOR_ALIGN_JUSTIFY, (KERNEL_LOAD_ADDRESS + editor_cursor_alignment - _start)
+    jne gui_editor_justify_face_ready
+    movl $GUI_COLOR_PINK, %esi
+gui_editor_justify_face_ready:
+    call gui_draw_small_button
+
     movl $184, %eax
     movl $136, %ebx
     movl (KERNEL_LOAD_ADDRESS + gui_editor_visible_columns - _start), %ecx
@@ -1514,6 +1645,7 @@ gui_editor_underline_face_ready:
     xorl %eax, %eax
     movl $1, %edx
     movb $0, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    movb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
 gui_editor_seek_line:
     cmpl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
     jae gui_editor_seek_complete
@@ -1529,12 +1661,34 @@ gui_editor_seek_italic:
     xorb $EDITOR_STYLE_ITALIC, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
 gui_editor_seek_underline:
     cmpb $EDITOR_MARK_UNDERLINE, %bl
-    jne gui_editor_seek_newline
+    jne gui_editor_seek_alignment_left
     xorb $EDITOR_STYLE_UNDERLINE, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    jmp gui_editor_seek_advance
+gui_editor_seek_alignment_left:
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %bl
+    jne gui_editor_seek_alignment_center
+    movb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_seek_advance
+gui_editor_seek_alignment_center:
+    cmpb $EDITOR_MARK_ALIGN_CENTER, %bl
+    jne gui_editor_seek_alignment_right
+    movb $EDITOR_ALIGN_CENTER, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_seek_advance
+gui_editor_seek_alignment_right:
+    cmpb $EDITOR_MARK_ALIGN_RIGHT, %bl
+    jne gui_editor_seek_alignment_justify
+    movb $EDITOR_ALIGN_RIGHT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_seek_advance
+gui_editor_seek_alignment_justify:
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %bl
+    jne gui_editor_seek_newline
+    movb $EDITOR_ALIGN_JUSTIFY, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_seek_advance
 gui_editor_seek_newline:
     cmpb $'\n', %bl
     jne gui_editor_seek_advance
     incl %edx
+    movb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
 gui_editor_seek_advance:
     incl %eax
     jmp gui_editor_seek_line
@@ -1542,8 +1696,18 @@ gui_editor_seek_complete:
     movl %eax, (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start)
     movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start)
     movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + gui_editor_line_prepared - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + gui_editor_caret_column - _start)
+    movl $-1, (KERNEL_LOAD_ADDRESS + gui_editor_caret_row - _start)
 gui_editor_text_next:
     movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    jne gui_editor_text_cursor_checked
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_caret_column - _start)
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_caret_row - _start)
+gui_editor_text_cursor_checked:
     cmpl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
     jae gui_editor_text_complete
     movl (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start), %edx
@@ -1561,12 +1725,62 @@ gui_editor_text_italic:
     jmp gui_editor_text_advance
 gui_editor_text_underline:
     cmpb $EDITOR_MARK_UNDERLINE, %bl
-    jne gui_editor_text_character
+    jne gui_editor_text_alignment_left
     xorb $EDITOR_STYLE_UNDERLINE, (KERNEL_LOAD_ADDRESS + editor_render_style - _start)
+    jmp gui_editor_text_advance
+gui_editor_text_alignment_left:
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %bl
+    jne gui_editor_text_alignment_center
+    movb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_text_advance
+gui_editor_text_alignment_center:
+    cmpb $EDITOR_MARK_ALIGN_CENTER, %bl
+    jne gui_editor_text_alignment_right
+    movb $EDITOR_ALIGN_CENTER, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_text_advance
+gui_editor_text_alignment_right:
+    cmpb $EDITOR_MARK_ALIGN_RIGHT, %bl
+    jne gui_editor_text_alignment_justify
+    movb $EDITOR_ALIGN_RIGHT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jmp gui_editor_text_advance
+gui_editor_text_alignment_justify:
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %bl
+    jne gui_editor_text_character
+    movb $EDITOR_ALIGN_JUSTIFY, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
     jmp gui_editor_text_advance
 gui_editor_text_character:
     cmpb $'\n', %bl
     je gui_editor_text_newline
+    cmpb $0, (KERNEL_LOAD_ADDRESS + gui_editor_line_prepared - _start)
+    jne gui_editor_line_is_prepared
+    call gui_editor_prepare_line
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    movb EDITOR_BUFFER_ADDRESS(,%eax), %bl
+gui_editor_line_is_prepared:
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    jne gui_editor_line_caret_ready
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_caret_column - _start)
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start), %ecx
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_caret_row - _start)
+gui_editor_line_caret_ready:
+    movl $1, (KERNEL_LOAD_ADDRESS + gui_editor_character_advance - _start)
+    cmpb $' ', %bl
+    jne gui_editor_character_advance_ready
+    cmpb $EDITOR_ALIGN_JUSTIFY, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jne gui_editor_character_advance_ready
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_justify_base - _start), %ecx
+    incl %ecx
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_justify_spaces_used - _start), %edx
+    cmpl (KERNEL_LOAD_ADDRESS + gui_editor_justify_remainder - _start), %edx
+    jae gui_editor_space_remainder_ready
+    incl %ecx
+gui_editor_space_remainder_ready:
+    incl %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_editor_justify_spaces_used - _start)
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_character_advance - _start)
+gui_editor_character_advance_ready:
     movl (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start), %ecx
     cmpl (KERNEL_LOAD_ADDRESS + gui_editor_horizontal_offset - _start), %ecx
     jb gui_editor_text_advance_column
@@ -1575,35 +1789,56 @@ gui_editor_text_character:
     jae gui_editor_text_advance_column
     shll $3, %ecx
     addl $192, %ecx
-    movl %ecx, %eax
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_cell_x - _start)
     movl (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start), %edx
     shll $4, %edx
     addl $144, %edx
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_editor_cell_y - _start)
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + editor_selection_start - _start), %eax
+    jb gui_editor_selection_cell_ready
+    cmpl (KERNEL_LOAD_ADDRESS + editor_selection_end - _start), %eax
+    jae gui_editor_selection_cell_ready
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_cell_x - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_cell_y - _start), %ebx
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_character_advance - _start), %ecx
+    shll $3, %ecx
+    movl $16, %edx
+    movl $GUI_COLOR_ACTIVE, %esi
+    call gui_fill_rectangle
+gui_editor_selection_cell_ready:
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_cell_x - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_cell_y - _start), %edx
     addl (KERNEL_LOAD_ADDRESS + gui_draw_offset_x - _start), %eax
     addl (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start), %edx
     movl %eax, BOOT_CURSOR_X(%ebp)
     movl %edx, BOOT_CURSOR_Y(%ebp)
     movl $GUI_COLOR_TEXT, BOOT_COLOR(%ebp)
-    movb %bl, %al
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    movb EDITOR_BUFFER_ADDRESS(,%eax), %al
     call draw_character_styled
 gui_editor_text_advance_column:
-    incl (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_character_advance - _start), %ecx
+    addl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
     jmp gui_editor_text_advance
 gui_editor_text_newline:
     incl (KERNEL_LOAD_ADDRESS + gui_editor_render_row - _start)
     movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + gui_editor_line_prepared - _start)
+    movb $EDITOR_ALIGN_LEFT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
 gui_editor_text_advance:
     incl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start)
     jmp gui_editor_text_next
 gui_editor_text_complete:
 
-    /* Caret position follows logical text rather than the last glyph drawn. */
-    movl (KERNEL_LOAD_ADDRESS + text_position_line - _start), %edx
-    subl (KERNEL_LOAD_ADDRESS + gui_editor_first_line - _start), %edx
+    /* The captured display column includes center/right offsets and justified
+     * space expansion, unlike the raw logical text column. */
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_caret_row - _start), %edx
+    testl %edx, %edx
+    js gui_editor_caret_complete
     cmpl (KERNEL_LOAD_ADDRESS + gui_editor_visible_rows - _start), %edx
     jae gui_editor_caret_complete
-    movl (KERNEL_LOAD_ADDRESS + text_position_column - _start), %eax
-    decl %eax
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_caret_column - _start), %eax
     subl (KERNEL_LOAD_ADDRESS + gui_editor_horizontal_offset - _start), %eax
     js gui_editor_caret_complete
     cmpl (KERNEL_LOAD_ADDRESS + gui_editor_visible_columns - _start), %eax
@@ -1661,6 +1896,67 @@ gui_editor_draw_status:
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
 gui_editor_render_complete:
+    ret
+
+/* Measure the current logical line, then establish its display offset and
+ * justified-space expansion. Inline style/alignment bytes consume no cells. */
+gui_editor_prepare_line:
+    pushal
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_render_index - _start), %eax
+    xorl %ecx, %ecx
+    xorl %edx, %edx
+gui_editor_measure_next:
+    cmpl (KERNEL_LOAD_ADDRESS + editor_length - _start), %eax
+    jae gui_editor_measure_complete
+    movb EDITOR_BUFFER_ADDRESS(,%eax), %bl
+    cmpb $'\n', %bl
+    je gui_editor_measure_complete
+    cmpb $EDITOR_MARK_BOLD, %bl
+    jb gui_editor_measure_character
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %bl
+    jbe gui_editor_measure_advance
+gui_editor_measure_character:
+    incl %ecx
+    cmpb $' ', %bl
+    jne gui_editor_measure_advance
+    incl %edx
+gui_editor_measure_advance:
+    incl %eax
+    jmp gui_editor_measure_next
+gui_editor_measure_complete:
+    movl %ecx, (KERNEL_LOAD_ADDRESS + gui_editor_line_length - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_editor_line_spaces - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_justify_base - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_justify_remainder - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_justify_spaces_used - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_visible_columns - _start), %eax
+    cmpl %eax, %ecx
+    jae gui_editor_prepare_complete
+    subl %ecx, %eax
+    cmpb $EDITOR_ALIGN_CENTER, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jne gui_editor_prepare_right
+    shrl $1, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    jmp gui_editor_prepare_complete
+gui_editor_prepare_right:
+    cmpb $EDITOR_ALIGN_RIGHT, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jne gui_editor_prepare_justify
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_editor_render_column - _start)
+    jmp gui_editor_prepare_complete
+gui_editor_prepare_justify:
+    cmpb $EDITOR_ALIGN_JUSTIFY, (KERNEL_LOAD_ADDRESS + editor_render_alignment - _start)
+    jne gui_editor_prepare_complete
+    testl %edx, %edx
+    jz gui_editor_prepare_complete
+    movl %edx, %ebx
+    xorl %edx, %edx
+    divl %ebx
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_editor_justify_base - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + gui_editor_justify_remainder - _start)
+gui_editor_prepare_complete:
+    movb $1, (KERNEL_LOAD_ADDRESS + gui_editor_line_prepared - _start)
+    popal
     ret
 
 gui_render_file_browser:
@@ -2237,16 +2533,40 @@ gui_editor_click:
     jb gui_click_complete
     cmpl $456, %eax
     jb gui_editor_click_underline
+    cmpl $464, %eax
+    jb gui_click_complete
+    cmpl $484, %eax
+    jb gui_editor_click_left
+    cmpl $488, %eax
+    jb gui_click_complete
+    cmpl $508, %eax
+    jb gui_editor_click_center
+    cmpl $512, %eax
+    jb gui_click_complete
+    cmpl $532, %eax
+    jb gui_editor_click_right
+    cmpl $536, %eax
+    jb gui_click_complete
+    cmpl $556, %eax
+    jb gui_editor_click_justify
     jmp gui_click_complete
 gui_editor_click_bold:
     movb $EDITOR_MARK_BOLD, %al
-    jmp editor_character
+    jmp editor_apply_format
 gui_editor_click_italic:
     movb $EDITOR_MARK_ITALIC, %al
-    jmp editor_character
+    jmp editor_apply_format
 gui_editor_click_underline:
     movb $EDITOR_MARK_UNDERLINE, %al
-    jmp editor_character
+    jmp editor_apply_format
+gui_editor_click_left:
+    jmp editor_align_left
+gui_editor_click_center:
+    jmp editor_align_center
+gui_editor_click_right:
+    jmp editor_align_right
+gui_editor_click_justify:
+    jmp editor_align_justify
 gui_editor_click_actions:
     movl (KERNEL_LOAD_ADDRESS + wm_h + WM_EDITOR * 4 - _start), %ecx
     subl $56, %ecx
@@ -2275,6 +2595,10 @@ gui_editor_click_save_as:
 gui_editor_click_text:
     cmpb $0, (KERNEL_LOAD_ADDRESS + editor_name_mode - _start)
     jne gui_click_complete
+    movl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+gui_editor_pointer_to_cursor:
     movl (KERNEL_LOAD_ADDRESS + wm_local_x - _start), %eax
     cmpl $24, %eax
     jb gui_click_complete
@@ -2320,6 +2644,11 @@ gui_editor_click_column_next:
     je gui_editor_click_column_marker
     cmpb $EDITOR_MARK_UNDERLINE, %bl
     je gui_editor_click_column_marker
+    cmpb $EDITOR_MARK_ALIGN_LEFT, %bl
+    jb gui_editor_click_column_newline
+    cmpb $EDITOR_MARK_ALIGN_JUSTIFY, %bl
+    jbe gui_editor_click_column_marker
+gui_editor_click_column_newline:
     cmpb $'\n', %bl
     je gui_editor_click_set
     incl %eax
@@ -2332,7 +2661,7 @@ gui_editor_click_set:
     movl %eax, (KERNEL_LOAD_ADDRESS + editor_cursor - _start)
     movl $-1, (KERNEL_LOAD_ADDRESS + editor_preferred_column - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
-    call render_shell
+    call render_editor
     ret
 
 gui_file_click:
@@ -2606,6 +2935,8 @@ wm_terminal_cursor_y_ready:
     ret
 
 gui_handle_drag:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+    jne gui_editor_mouse_drag
     movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
     cmpl $WM_NONE, %eax
     jne wm_resize_drag
@@ -2642,6 +2973,38 @@ wm_drag_y_ready:
     movl %ecx, (KERNEL_LOAD_ADDRESS + wm_preview_y - _start)
     call wm_xor_drag_outline
 wm_drag_complete:
+    ret
+
+gui_editor_mouse_drag:
+    movl (KERNEL_LOAD_ADDRESS + mouse_x - _start), %eax
+    subl (KERNEL_LOAD_ADDRESS + wm_x + WM_EDITOR * 4 - _start), %eax
+    cmpl $24, %eax
+    jae gui_editor_drag_x_min_ready
+    movl $24, %eax
+gui_editor_drag_x_min_ready:
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_visible_columns - _start), %ecx
+    shll $3, %ecx
+    addl $23, %ecx
+    cmpl %ecx, %eax
+    jbe gui_editor_drag_x_ready
+    movl %ecx, %eax
+gui_editor_drag_x_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + wm_local_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + mouse_y - _start), %eax
+    subl (KERNEL_LOAD_ADDRESS + wm_y + WM_EDITOR * 4 - _start), %eax
+    cmpl $96, %eax
+    jae gui_editor_drag_y_min_ready
+    movl $96, %eax
+gui_editor_drag_y_min_ready:
+    movl (KERNEL_LOAD_ADDRESS + gui_editor_visible_rows - _start), %ecx
+    shll $4, %ecx
+    addl $95, %ecx
+    cmpl %ecx, %eax
+    jbe gui_editor_drag_y_ready
+    movl %ecx, %eax
+gui_editor_drag_y_ready:
+    movl %eax, (KERNEL_LOAD_ADDRESS + wm_local_y - _start)
+    call gui_editor_pointer_to_cursor
     ret
 
 wm_resize_drag:
@@ -2682,6 +3045,8 @@ wm_resize_height_ready:
     ret
 
 gui_handle_release:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+    jne gui_editor_mouse_release
     movzbl (KERNEL_LOAD_ADDRESS + wm_resize_window - _start), %eax
     cmpl $WM_NONE, %eax
     jne wm_release_resize
@@ -2701,6 +3066,16 @@ wm_release_position_ready:
     movb $WM_NONE, (KERNEL_LOAD_ADDRESS + wm_drag_window - _start)
     call render_shell
 wm_release_complete:
+    ret
+
+gui_editor_mouse_release:
+    movb $0, (KERNEL_LOAD_ADDRESS + editor_mouse_selecting - _start)
+    movl (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + editor_cursor - _start), %eax
+    jne gui_editor_mouse_release_ready
+    movl $-1, (KERNEL_LOAD_ADDRESS + editor_selection_anchor - _start)
+gui_editor_mouse_release_ready:
+    call render_editor
     ret
 
 wm_release_resize:
@@ -3421,7 +3796,7 @@ gui_window_editor_caption: .asciz "M.I.L.O WRITER"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.28.2"
+gui_overlay_version: .asciz "0.28.3"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -3449,7 +3824,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "RIGHT CLICK // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.28.2"
+gui_taskbar_version: .asciz "M.I.L.O V0.28.3"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -3458,12 +3833,16 @@ gui_editor_label: .asciz "WRITER"
 gui_editor_default_name: .asciz "UNTITLED.TXT"
 gui_editor_file_label: .asciz "FILE"
 gui_editor_bytes_label: .asciz "BYTES"
-gui_editor_help: .asciz "CTRL+S SAVE // CTRL+B/I/U FORMAT"
-gui_editor_save_as_prompt: .asciz "NAME (8.3)"
+gui_editor_help: .asciz "SHIFT+ARROWS/MOUSE SELECT // CTRL+B/I/U"
+gui_editor_save_as_prompt: .asciz "NAME (AUTO .TXT)"
 gui_editor_name_cursor: .asciz "_"
 gui_editor_bold_label: .asciz "B"
 gui_editor_italic_label: .asciz "I"
 gui_editor_underline_label: .asciz "U"
+gui_editor_left_label: .asciz "L"
+gui_editor_center_label: .asciz "C"
+gui_editor_right_label: .asciz "R"
+gui_editor_justify_label: .asciz "J"
 gui_editor_save_label: .asciz "SAVE"
 gui_editor_save_as_label: .asciz "SAVE AS"
 gui_editor_close_label: .asciz "CLOSE"
@@ -3481,7 +3860,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.28.2"
+gui_version_status: .asciz "KERNEL   0.28.3"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"
@@ -3600,8 +3979,20 @@ gui_editor_first_line: .long 1
 gui_editor_render_index: .long 0
 gui_editor_render_row: .long 0
 gui_editor_render_column: .long 0
+gui_editor_caret_column: .long -1
+gui_editor_caret_row: .long -1
+gui_editor_character_advance: .long 1
+gui_editor_line_length: .long 0
+gui_editor_line_spaces: .long 0
+gui_editor_justify_base: .long 0
+gui_editor_justify_remainder: .long 0
+gui_editor_justify_spaces_used: .long 0
+gui_editor_cell_x: .long 0
+gui_editor_cell_y: .long 0
 gui_editor_click_line: .long 1
 gui_editor_click_column: .long 0
+gui_editor_line_prepared: .byte 0
+.align 4
 system_event_count: .long 0
 activity_previous_events: .long 0
 activity_current_events: .long 0
@@ -3627,6 +4018,8 @@ wm_preview_y: .long 0
 wm_preview_w: .long 0
 wm_preview_h: .long 0
 wm_physical_framebuffer: .long 0
+wm_present_width: .long 0
+wm_present_height: .long 0
 wm_menu_x: .long 0
 wm_menu_y: .long 0
 wm_taskbar_count: .long 0

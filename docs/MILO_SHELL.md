@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.28.2 extends the accepted V0.26 native root desktop. Its interaction model
+V0.28.3 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -42,7 +42,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.28.2` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.28.3` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -106,25 +106,30 @@ action opens the selected document directly in it. Its logical viewport is
 recomputed from the current client width and height on every composition;
 long lines pan with the caret and logical rows scroll to keep it visible.
 Keyboard navigation and mouse clicks place the caret in the underlying text.
-`Ctrl+S` and Save use the verified FAT12 write path. Save As opens a visible,
-initially empty 8.3 name field and commits it with Enter. Closing a modified
+Shift+Arrow extends a visible selection, Ctrl+A selects all, and a mouse drag
+selects after typing. `Ctrl+S` and Save use the verified FAT12 write path. Save
+As opens a visible, initially empty field and commits it with Enter. An omitted
+extension automatically becomes `.TXT`; because the volume is FAT12 8.3,
+long bases are normalized to their first eight characters. Closing a modified
 document requires a second explicit close.
 
 `Ctrl+B`, `Ctrl+I`, and `Ctrl+U`, or the matching B/I/U toolbar buttons, toggle
-Bold, Italic, and Underline at the caret. Each change is stored as a single
-non-printing control byte in the same FAT12 file. Writer interprets these bytes
-while drawing, and Terminal's `type` path ignores them, so formatting remains
-persistent without a sidecar file, document database, font engine, or doubled
-text buffer. The active state is highlighted in the toolbar.
+Bold, Italic, and Underline at the caret or wrap an existing selection. The
+L/C/R/J toolbar controls and Ctrl+L/C/R/J apply Left, Center, Right, or Justified
+layout to every paragraph touched by the selection. Each boundary is stored as
+a single non-printing control byte in the same FAT12 file. Writer interprets
+these bytes while drawing, and Terminal's `type` path ignores them, so layout
+remains persistent without a sidecar file, document database, font engine, or
+doubled text buffer. Active state is highlighted in the toolbar.
 
 The shared clipped text emitter reloads the source byte after coordinate clip
 checks. This prevents resized client text from being replaced by glyphs derived
 from screen coordinates—the corruption exposed by V0.27.1 runtime testing.
-While Writer owns keyboard focus it is necessarily the frontmost window, so a
-keystroke repaints only Writer. Whole-desktop changes and the once-per-second
-live update are assembled in a 3 MiB RAM backbuffer and copied to video memory
-only when complete. Lower z-order layers are therefore never deliberately
-presented as intermediate frames.
+Writer keystrokes, caret movement, and selection are composed in the same RAM
+backbuffer and copied to video only as a completed Writer rectangle. Whole-
+desktop changes and the once-per-second live update copy a completed 3 MiB
+frame. Lower z-order layers are therefore never deliberately presented as
+intermediate frames.
 
 ## Terminal surface
 
@@ -185,7 +190,7 @@ remains read-only assistance and cannot authorize a file mutation.
 
 The kernel enables the standard PS/2 auxiliary device, requests default
 settings, enables streaming, and polls three-byte packets beside keyboard
-input. V0.28.2 leaves the cursor visible while bytes one and two arrive, then
+input. V0.28.3 leaves the cursor visible while bytes one and two arrive, then
 erases, moves, and redraws it once when byte three completes the packet. This
 removes the former three-redraw movement flicker. A rising right-button bit
 invokes the root-menu binding; the left button continues to dispatch selection,
@@ -215,7 +220,8 @@ collection, minimized-only task slots and restore routing, taskbar-aware
 menu/window bounds, bounded resize dispatch, client clipping, adaptive
 FileHound layout, dynamic Terminal viewport, GUI/Terminal text isolation,
 root-menu geometry, hover and routing, five-window behavior, Writer persistence,
-inline formatting, empty-field Save As, atomic full-frame composition,
+selection, inline formatting and alignment, automatic `.TXT` Save As,
+atomic full-frame and Writer-region composition,
 resize-safe glyph rendering, pending-action
 buffer isolation, title actions, complete-packet cursor redraw, PS/2 button
 handling, and cursor storage.
@@ -223,6 +229,6 @@ handling, and cursor storage.
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.2.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.28.3.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

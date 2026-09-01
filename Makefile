@@ -12,7 +12,7 @@ MILO_STAGE2 := $(MILO_BUILD_DIR)/stage2.bin
 MILO_STAGE2_MAX_BYTES := 8192
 MILO_KERNEL_OBJECT := $(MILO_BUILD_DIR)/kernel.o
 MILO_KERNEL := $(MILO_BUILD_DIR)/kernel.bin
-MILO_KERNEL_MAX_BYTES := 32768
+MILO_KERNEL_MAX_BYTES := 49152
 MILO_SPLASH_SOURCE := boot/milo/assets/milo-splash.ans
 MILO_SPLASH_TOOL := tools/build_milo_splash.py
 MILO_SPLASH := $(MILO_BUILD_DIR)/splash.bin
@@ -23,7 +23,7 @@ MILO_FAT12_ARGS := --place=FARTEST.TXT=130
 MILO_ROUTING_TEST := tools/test_milo_routing_contract.py
 MILO_STORAGE_TEST := tools/test_milo_storage_contract.py
 MILO_SHELL_TEST := tools/test_milo_shell_contract.py
-MILO_VERSION ?= 0.28.2
+MILO_VERSION ?= 0.28.3
 MILO_FLOPPY := build/M.I.L.O-floppy-V$(MILO_VERSION).img
 PYTHON ?= python3
 INITRD_DIR := initrd

@@ -157,6 +157,12 @@ layers and that Writer's prefilled 12-character Save As value rejected all new
 input. **V0.28.2** composes complete desktop frames in RAM before presenting
 them, opens a visible empty 8.3 name field, and adds persistent one-byte
 Bold/Italic/Underline toggles to the native Writer.
+Runtime use then showed that extensionless Save As names failed, existing text
+could not be selected and styled, paragraph alignment was absent, and focused
+Writer repaint still touched video memory incrementally. **V0.28.3** normalizes
+extensionless names to `.TXT`, adds visible keyboard and mouse selection,
+selection-aware styles, four paragraph alignments, and RAM-backed region
+presentation for routine Writer updates.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -164,11 +170,11 @@ Bold/Italic/Underline toggles to the native Writer.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.28.2 candidate kernel is 32,139 bytes; 32 KiB is reserved for
-  controlled growth, leaving 629 bytes in the current kernel region.
+- The V0.28.3 candidate kernel is 34,471 bytes; 48 KiB is reserved for
+  controlled growth, leaving 14,681 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
-- The FAT12 data area contains 2,766 accessible clusters. Far clusters are read
+- The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
   on demand and all written sectors are read back and verified.
 - Text editing is deliberately limited to 8,191 bytes per document.
 - `MILO.MEM` stores a checksummed 24-byte structural personality profile.
@@ -341,6 +347,17 @@ contract rather than compensating with per-screen coordinate offsets.
   controls. Persist each style boundary as one inline control byte, keep it out
   of logical columns, and ignore it in ordinary Terminal file output.
 
+### V0.28.3 — selection, alignment, and stable Writer presentation
+
+- Append `.TXT` when Save As receives an extensionless name and normalize the
+  base to FAT12's eight-character limit.
+- Add visible Shift+Arrow, Ctrl+A, and mouse-drag selection. Apply Bold,
+  Italic, or Underline after typing by wrapping the selected byte range.
+- Add persistent Left, Center, Right, and Justified paragraph alignment through
+  toolbar controls and Ctrl+L/C/R/J, including multi-paragraph selections.
+- Compose routine Writer updates in RAM and copy only the completed Writer
+  rectangle to video memory to remove the remaining incremental repaint flash.
+
 ### V0.29 — low-resolution image viewing
 
 - Load and display a deliberately small indexed image format.
@@ -425,3 +442,4 @@ journal records intent and rationale.
 | `add V0.28 native Writer workspace` | Corrected clipped glyph emission, added a fifth resizable Writer window, routed FileHound Edit into it, added viewport scrolling and mouse caret placement, and connected Save, validated Save As, status feedback, and guarded close to the verified FAT12 path. | Runtime resizing exposed coordinate bytes being drawn as text, while useful document work required a native application rather than a terminal-shaped editor mode. |
 | `stabilize V0.28.1 Writer repaint` | Replaced full desktop recomposition on every Writer edit with a terminal-state-safe repaint of the frontmost Writer window, while retaining full composition for genuine desktop transitions. | Runtime typing showed the root and lower windows flickering through during back-to-front full-frame redraws; focused repaint removes that visible intermediate state without adding a large compositor or backbuffer. |
 | `polish V0.28.2 Writer and composition` | Added atomic RAM-backed full-frame presentation, repaired and exposed Writer's empty 8.3 name entry, and added persistent inline Bold/Italic/Underline keyboard and toolbar controls with styled rendering and plain Terminal output. | Runtime verification showed timed redraw flicker and a Save As field whose 12-byte default left no input capacity; useful offline document work also needed minimal formatting without importing a large document model. |
+| `add V0.28.3 Writer selection and layout` | Added automatic `.TXT` normalization, visible keyboard/mouse selection, selection-aware styles, persistent Left/Center/Right/Justified paragraph layout, and RAM-backed Writer-region presentation. | Runtime use showed extensionless Save As failure, no post-entry styling or alignment, and minor incremental redraw flicker; these changes make Writer useful without importing a document framework. |

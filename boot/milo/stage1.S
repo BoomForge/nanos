@@ -18,10 +18,10 @@ _start:
     nop
 
     /* FAT12 BIOS parameter block; loader sectors are reserved from the FAT. */
-    .ascii "MILO28.2"
+    .ascii "MILO28.3"
     .word 512
     .byte 1
-    .word 82
+    .word 114
     .byte 2
     .word 224
     .word 2880

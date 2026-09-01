@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.28.2 native desktop and Writer."""
+"""Static and binary checks for the V0.28.3 native desktop and Writer."""
 
 from pathlib import Path
 import re
 import sys
 
 
-KERNEL_LIMIT = 32 * 1024
+KERNEL_LIMIT = 48 * 1024
 CURSOR_WIDTH = 12
 CURSOR_HEIGHT = 16
 CURSOR_BACKING = 0x32400
@@ -70,15 +70,17 @@ def main():
         b"RIGHT CLICK // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.28.2",
+        b"M.I.L.O V0.28.3",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.28.2",
+        b"M.I.L.O VERSION 0.28.3",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
+        b"SHIFT+ARROWS/MOUSE SELECT",
+        b"NAME (AUTO .TXT)",
         b"UNSAVED // CLOSE AGAIN",
     ):
         assert marker in kernel, marker
@@ -133,7 +135,7 @@ def main():
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.28.2") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.28.3") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Five independent native application windows retain focus, stacking,
@@ -230,11 +232,13 @@ def main():
     assert "call wm_render_window" in editor_repaint
     assert "call gui_save_terminal_state" in editor_repaint
     assert "call gui_restore_terminal_state" in editor_repaint
+    assert "call wm_begin_composition" in editor_repaint
+    assert "call wm_present_editor_region" in editor_repaint
     assert "call render_shell" not in editor_repaint
 
     # Whole-desktop updates compose in RAM and are presented as one complete
-    # frame. Writer supports a visible empty 8.3 name field and three compact,
-    # persistent inline formatting toggles without adding a document runtime.
+    # frame. Focused Writer repaint uses the same backbuffer with a bounded
+    # region copy. Writer keeps compact inline style and paragraph controls.
     assert FRAMEBUFFER_BACKING_END == 0x400000
     for fragment in (
         ".equ WM_BACKBUFFER_ADDRESS, 0x100000",
@@ -243,9 +247,17 @@ def main():
         "call wm_present_composition",
         "rep movsl",
         "wm_physical_framebuffer: .long 0",
+        "wm_present_editor_region:",
         "gui_editor_bold_label: .asciz \"B\"",
         "gui_editor_italic_label: .asciz \"I\"",
         "gui_editor_underline_label: .asciz \"U\"",
+        "gui_editor_left_label: .asciz \"L\"",
+        "gui_editor_center_label: .asciz \"C\"",
+        "gui_editor_right_label: .asciz \"R\"",
+        "gui_editor_justify_label: .asciz \"J\"",
+        "gui_editor_prepare_line:",
+        "gui_editor_selection_cell_ready:",
+        "gui_editor_mouse_drag:",
         "call draw_character_styled",
         "xorb $EDITOR_STYLE_BOLD",
         "xorb $EDITOR_STYLE_ITALIC",
@@ -256,9 +268,17 @@ def main():
         "#define EDITOR_MARK_BOLD 2",
         "#define EDITOR_MARK_ITALIC 3",
         "#define EDITOR_MARK_UNDERLINE 4",
+        "#define EDITOR_MARK_ALIGN_LEFT 5",
+        "#define EDITOR_MARK_ALIGN_JUSTIFY 8",
         "editor_toggle_bold:",
         "editor_toggle_italic:",
         "editor_toggle_underline:",
+        "editor_select_all:",
+        "editor_apply_format:",
+        "editor_apply_alignment:",
+        "editor_selection_anchor: .long -1",
+        "editor_name_append_text:",
+        "movb $'T', (KERNEL_LOAD_ADDRESS + editor_save_as_name + 1 - _start)(,%ecx)",
         "draw_character_styled:",
         "movb $0, (KERNEL_LOAD_ADDRESS + editor_save_as_name - _start)",
         "cmpb $EDITOR_MARK_BOLD, %al\n    je emit_complete",
@@ -415,7 +435,7 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.28.2 desktop contract: %d-byte kernel, backbuffer, held "
+        "M.I.L.O V0.28.3 desktop contract: %d-byte kernel, backbuffer, held "
         "splash, formatted Writer, RTC taskbar, FileHound, terminal OK"
         % len(kernel)
     )
