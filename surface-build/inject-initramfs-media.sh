@@ -127,7 +127,7 @@ sudo chmod +x "$PREMOUNT_DIR/00surface-direct-media"
 # Defense in depth: casper's normal failure path offers an interactive netboot
 # prompt. For the Surface direct-install kernel flag that is forbidden. Replace
 # only that failure site so a media-discovery failure powers off instead.
-python3 - "$CASPER" <<'PY'
+sudo python3 - "$CASPER" <<'PY'
 from pathlib import Path
 import sys
 p = Path(sys.argv[1])
