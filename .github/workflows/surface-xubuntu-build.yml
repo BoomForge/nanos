@@ -1,4 +1,4 @@
-name: Surface Xubuntu Autoinstall ISO
+name: Surface Xubuntu Direct Install ISO
 
 on:
   push:
@@ -12,11 +12,55 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Check out build branch
         uses: actions/checkout@v5
+
+      - name: Prepare direct-installer build
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod +x surface-build/build-surface-xubuntu.sh
+          chmod +x surface-build/inject-direct-installer.sh
+
+          # Inject the direct-install layer BEFORE the builder calculates
+          # manifests and repacks the live squashfs. This keeps the proven
+          # Surface/casper build path and removes Subiquity from installation.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('surface-build/build-surface-xubuntu.sh')
+          s = p.read_text()
+
+          # Ensure all disk/UEFI tools used by the text installer exist both
+          # in the live environment and in the copied target system.
+          old = '  bluez libinput-tools xinput blueman onboard\n'
+          new = ('  bluez libinput-tools xinput blueman onboard \\\n'
+                 '  parted dosfstools grub-efi-amd64-bin grub-efi-amd64-signed shim-signed efibootmgr\n')
+          if old not in s:
+              raise SystemExit('Surface package install block changed unexpectedly')
+          s = s.replace(old, new, 1)
+
+          marker = 'log "Updating live manifests"\n'
+          injection = '''log "Injecting zero-input direct Surface installer"\n"$GITHUB_WORKSPACE/surface-build/inject-direct-installer.sh" \\\n  "$LIVE" "$ISO" "$STD_MERGED" "$FULL_MERGED"\n\n'''
+          if marker not in s:
+              raise SystemExit('Live-manifest marker not found')
+          s = s.replace(marker, injection + marker, 1)
+
+          # The stock builder updates casper SHA256SUMS. Also regenerate the
+          # media MD5 list because GRUB and the live squashfs are now changed.
+          marker2 = 'rm -f "$ISO/casper/SHA256SUMS.gpg"\n'
+          extra = '''rm -f "$ISO/casper/SHA256SUMS.gpg"\n\nlog "Refreshing whole-media MD5 list"\n(\n  cd "$ISO"\n  find . -type f ! -name md5sum.txt ! -name boot.catalog -print0 \\\n    | sort -z | xargs -0 md5sum > md5sum.txt\n)\n'''
+          if marker2 not in s:
+              raise SystemExit('Casper checksum marker not found')
+          s = s.replace(marker2, extra, 1)
+
+          p.write_text(s)
+          PY
+
+          bash -n surface-build/build-surface-xubuntu.sh
+          bash -n surface-build/inject-direct-installer.sh
 
       - name: Free runner disk space
         shell: bash
@@ -26,249 +70,94 @@ jobs:
           sudo docker system prune -af || true
           df -h /
 
-      - name: Install ISO tools
+      - name: Build Surface direct-install ISO
         shell: bash
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xorriso python3-yaml
+          set +e
+          ./surface-build/build-surface-xubuntu.sh
+          rc=$?
+          set -e
 
-      - name: Download validated Surface live ISO v5
-        uses: actions/download-artifact@v4
-        with:
-          name: xubuntu-24.04.4-surface-pro-4-ready-to-flash-v5
-          path: base-artifact
-          github-token: ${{ github.token }}
-          repository: BoomForge/nanos
-          run-id: 33384979529
+          ISO=xubuntu-24.04.4-surface-pro-4-amd64.iso
+          SHA="$ISO.sha256"
+          BOOT="$ISO.boot-report.txt"
+          INITRD="$ISO.initrd-report.txt"
 
-      - name: Verify validated base ISO
+          if (( rc != 0 )); then
+            # Older versions of the builder could return 32 from harmless
+            # final unmount cleanup after BUILD_COMPLETE. Accept that one
+            # code only when every expected output already exists.
+            if (( rc == 32 )) && [[ -s "$ISO" && -s "$SHA" && -s "$BOOT" && -s "$INITRD" ]]; then
+              echo 'Builder returned cleanup rc=32 after producing all outputs; continuing to hard validation.'
+            else
+              echo "Builder failed with rc=$rc"
+              exit "$rc"
+            fi
+          fi
+
+      - name: Validate direct installer inside finished ISO
         shell: bash
         run: |
           set -Eeuo pipefail
-          cd base-artifact
           ISO=xubuntu-24.04.4-surface-pro-4-amd64.iso
-          EXPECTED="$(awk 'NR==1 {print $1}' "$ISO.sha256")"
+          SHA="$ISO.sha256"
+          BOOT="$ISO.boot-report.txt"
+          INITRD="$ISO.initrd-report.txt"
+          VERIFY="$RUNNER_TEMP/direct-install-verify"
+          rm -rf "$VERIFY"
+          mkdir -p "$VERIFY"
+
+          EXPECTED="$(awk 'NR==1 {print $1}' "$SHA")"
           ACTUAL="$(sha256sum "$ISO" | awk '{print $1}')"
-          echo "Expected: $EXPECTED"
-          echo "Actual:   $ACTUAL"
           test -n "$EXPECTED"
           test "$ACTUAL" = "$EXPECTED"
-          grep -q 'scripts/casper' "$ISO.initrd-report.txt"
-          grep -q 'lib/modules/6.19.8-surface-3/' "$ISO.initrd-report.txt"
 
-      - name: Build zero-input Surface autoinstall ISO
-        shell: bash
-        run: |
-          set -Eeuo pipefail
+          grep -q 'scripts/casper' "$INITRD"
+          grep -Eq 'lib/modules/[^/]*-surface[^/]*/' "$INITRD"
+          grep -q 'UEFI' "$BOOT"
+          grep -q 'BIOS' "$BOOT"
 
-          BASE="$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso"
-          OUT="$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso"
-          WORK="$RUNNER_TEMP/surface-autoinstall-v5"
-          PATCH="$WORK/patch"
-          VERIFY="$WORK/verify"
+          xorriso -osirrox on -indev "$ISO" \
+            -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg" \
+            -extract /casper/minimal.standard.live.squashfs "$VERIFY/live.squashfs" \
+            -extract /casper/minimal.standard.manifest "$VERIFY/standard.manifest" >/dev/null 2>&1
 
-          rm -rf "$WORK" "$OUT"
-          mkdir -p "$PATCH/boot/grub" "$VERIFY"
+          first="$(grep -n -m1 '^menuentry ' "$VERIFY/grub.cfg" | cut -d: -f1)"
+          test -n "$first"
+          sed -n "${first}p" "$VERIFY/grub.cfg" | grep -q 'INSTALL SURFACE PRO 4'
+          grep -q '^set default=0$' "$VERIFY/grub.cfg"
+          grep -q '^set timeout=5$' "$VERIFY/grub.cfg"
+          grep -q 'surface_direct_install=1' "$VERIFY/grub.cfg"
+          grep -q 'systemd.unit=multi-user.target' "$VERIFY/grub.cfg"
 
-          echo 'Extracting only the two small files that need editing...'
-          xorriso -osirrox on -indev "$BASE" -extract /boot/grub/grub.cfg "$PATCH/boot/grub/grub.cfg"
-          xorriso -osirrox on -indev "$BASE" -extract /md5sum.txt "$PATCH/md5sum.txt"
+          grep -q '^linux-image-surface ' "$VERIFY/standard.manifest"
+          grep -q '^iptsd ' "$VERIFY/standard.manifest"
+          grep -q '^libwacom-surface ' "$VERIFY/standard.manifest"
+          grep -q '^onboard ' "$VERIFY/standard.manifest"
 
-          cat > "$PATCH/autoinstall.yaml" <<'AUTOINSTALL'
-          autoinstall:
-            version: 1
-            interactive-sections: []
-            refresh-installer:
-              update: false
-            locale: en_AU.UTF-8
-            keyboard:
-              layout: us
-              variant: ""
-            timezone: Australia/Hobart
-            source:
-              search_drivers: false
-            apt:
-              geoip: false
-              fallback: offline-install
-            identity:
-              realname: Surface User
-              hostname: surface-pro4
-              username: surface
-              password: "$6$SurfaceTemp$naVbdsS6fDapK4OAKJJhcg6QrKFEQNjNgZrB2K5aqKfSe10mfbOqjWU17HEPJaaA8kyU5vXBjalE1IDOYaM991"
-            storage:
-              layout:
-                name: direct
-                match:
-                  size: largest
-            ssh:
-              install-server: false
-            drivers:
-              install: false
-            oem:
-              install: false
-            shutdown: reboot
-            late-commands:
-              - curtin in-target --target=/target -- dpkg-query -W linux-image-surface iptsd libwacom-surface onboard lightdm
-              - curtin in-target --target=/target -- update-grub
-              - curtin in-target --target=/target -- mkdir -p /etc/lightdm/lightdm.conf.d /etc/onboard /usr/local/bin /home/surface/.config/autostart /home/surface/Desktop
-              - |
-                cat > /target/etc/lightdm/lightdm.conf.d/50-surface-autologin.conf <<'EOF'
-                [Seat:*]
-                autologin-user=surface
-                autologin-user-timeout=0
-                user-session=xubuntu
-                EOF
-              - |
-                cat > /target/etc/onboard/onboard-defaults.conf <<'EOF'
-                [keyboard]
-                input-event-source=GTK
-                touch-input=none
-                EOF
-              - |
-                cat > /target/usr/local/bin/surface-onboard <<'EOF'
-                #!/bin/sh
-                gsettings set org.onboard.keyboard input-event-source 'GTK' || true
-                gsettings set org.onboard.keyboard touch-input 'none' || true
-                exec onboard
-                EOF
-              - |
-                cat > /target/home/surface/.config/autostart/onboard.desktop <<'EOF'
-                [Desktop Entry]
-                Type=Application
-                Name=Onboard On-Screen Keyboard
-                Comment=Automatically start the touch keyboard
-                Exec=/usr/local/bin/surface-onboard
-                Terminal=false
-                X-GNOME-Autostart-enabled=true
-                X-XFCE-Autostart-Override=true
-                EOF
-              - |
-                cat > /target/home/surface/Desktop/Restart-Onboard.desktop <<'EOF'
-                [Desktop Entry]
-                Type=Application
-                Name=Restart On-Screen Keyboard
-                Comment=Restart Onboard if it was closed
-                Exec=sh -c 'pkill onboard || true; sleep 1; /usr/local/bin/surface-onboard'
-                Icon=input-keyboard
-                Terminal=false
-                EOF
-              - curtin in-target --target=/target -- chmod +x /usr/local/bin/surface-onboard /home/surface/Desktop/Restart-Onboard.desktop
-              - curtin in-target --target=/target -- chown -R surface:surface /home/surface/.config /home/surface/Desktop
-          AUTOINSTALL
+          unsquashfs -cat "$VERIFY/live.squashfs" usr/local/sbin/surface-direct-install > "$VERIFY/installer.sh"
+          unsquashfs -cat "$VERIFY/live.squashfs" etc/systemd/system/surface-direct-install.service > "$VERIFY/installer.service"
+          bash -n "$VERIFY/installer.sh"
+          grep -q 'parted -s.*mklabel gpt' "$VERIFY/installer.sh"
+          grep -q 'minimal.standard.squashfs' "$VERIFY/installer.sh"
+          grep -q 'grub-install --target=x86_64-efi' "$VERIFY/installer.sh"
+          grep -q 'autologin-user=surface' "$VERIFY/installer.sh"
+          grep -q 'surface-onboard' "$VERIFY/installer.sh"
+          grep -q 'systemctl poweroff' "$VERIFY/installer.sh"
+          grep -q 'ConditionKernelCommandLine=surface_direct_install' "$VERIFY/installer.service"
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          p = Path("${{ runner.temp }}/surface-autoinstall-v5/patch/boot/grub/grub.cfg")
-          s = p.read_text()
-          s = re.sub(r'(?m)^\s*set\s+(?:default|timeout|timeout_style)=.*\n?', '', s)
-          entry = r'''set default=0
-          set timeout_style=menu
-          set timeout=5
+          echo 'DIRECT INSTALL ISO VALIDATION PASSED'
+          echo "SHA256=$ACTUAL"
 
-          menuentry 'INSTALL SURFACE PRO 4 - ERASE INTERNAL DRIVE (AUTO IN 5 SECONDS)' {
-              set gfxpayload=keep
-              linux /casper/vmlinuz boot=casper autoinstall ignore_uuid console=tty1 ---
-              initrd /casper/initrd
-          }
-
-          '''
-          p.write_text(entry + s)
-          PY
-
-          sed -i '\#  \./boot/grub/grub.cfg$#d; \#  \./autoinstall.yaml$#d' "$PATCH/md5sum.txt"
-          (
-            cd "$PATCH"
-            md5sum ./boot/grub/grub.cfg ./autoinstall.yaml
-          ) >> "$PATCH/md5sum.txt"
-
-          echo 'Validating autoinstall and GRUB configuration...'
-          python3 - <<'PY'
-          import yaml
-          from pathlib import Path
-          root = Path("${{ runner.temp }}/surface-autoinstall-v5/patch")
-          a = yaml.safe_load((root / 'autoinstall.yaml').read_text())['autoinstall']
-          assert a['version'] == 1
-          assert a['identity']['username'] == 'surface'
-          assert a['storage']['layout']['name'] == 'direct'
-          assert a['storage']['layout']['match']['size'] == 'largest'
-          assert 'id' not in a['source']
-          late = '\n'.join(str(x) for x in a['late-commands'])
-          assert 'autologin-user=surface' in late
-          assert 'surface-onboard' in late
-          s = (root / 'boot/grub/grub.cfg').read_text()
-          first = s.find('menuentry ')
-          assert first >= 0
-          assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
-          assert 'set default=0' in s[:first]
-          assert 'set timeout=5' in s[:first]
-          assert 'autoinstall ignore_uuid' in s[first:first+500]
-          PY
-
-          echo 'Patching ONLY grub.cfg, autoinstall.yaml and md5sum.txt into validated v5...'
-          xorriso -indev "$BASE" -outdev "$OUT" \
-            -overwrite nondir \
-            -map "$PATCH/boot/grub/grub.cfg" /boot/grub/grub.cfg \
-            -map "$PATCH/autoinstall.yaml" /autoinstall.yaml \
-            -map "$PATCH/md5sum.txt" /md5sum.txt \
-            -boot_image any replay -commit
-
-          echo 'Validating the finished ISO...'
-          xorriso -osirrox on -indev "$OUT" -extract /boot/grub/grub.cfg "$VERIFY/grub.cfg"
-          xorriso -osirrox on -indev "$OUT" -extract /autoinstall.yaml "$VERIFY/autoinstall.yaml"
-          xorriso -osirrox on -indev "$BASE" -extract /casper/vmlinuz "$VERIFY/base-vmlinuz"
-          xorriso -osirrox on -indev "$OUT" -extract /casper/vmlinuz "$VERIFY/out-vmlinuz"
-          xorriso -osirrox on -indev "$BASE" -extract /casper/initrd "$VERIFY/base-initrd"
-          xorriso -osirrox on -indev "$OUT" -extract /casper/initrd "$VERIFY/out-initrd"
-          cmp "$VERIFY/base-vmlinuz" "$VERIFY/out-vmlinuz"
-          cmp "$VERIFY/base-initrd" "$VERIFY/out-initrd"
-
-          python3 - <<'PY'
-          import yaml
-          from pathlib import Path
-          v = Path("${{ runner.temp }}/surface-autoinstall-v5/verify")
-          a = yaml.safe_load((v / 'autoinstall.yaml').read_text())['autoinstall']
-          assert a['identity']['username'] == 'surface'
-          assert a['storage']['layout']['match']['size'] == 'largest'
-          s = (v / 'grub.cfg').read_text()
-          first = s.find('menuentry ')
-          assert first >= 0
-          assert s[first:].startswith("menuentry 'INSTALL SURFACE PRO 4")
-          assert 'set default=0' in s[:first]
-          assert 'set timeout=5' in s[:first]
-          assert 'autoinstall ignore_uuid' in s[first:first+500]
-          PY
-
-          xorriso -indev "$OUT" -report_el_torito plain | tee "$OUT.boot-report.txt"
-          grep -q 'UEFI' "$OUT.boot-report.txt"
-          grep -q 'BIOS' "$OUT.boot-report.txt"
-          sha256sum "$OUT" | tee "$OUT.sha256"
-
-          cp "$PATCH/autoinstall.yaml" "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall.yaml"
-          cp "$GITHUB_WORKSPACE/base-artifact/xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt" \
-             "$GITHUB_WORKSPACE/xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt"
-
-          echo
-          echo 'SURFACE AUTOBOOT INSTALL V5 READY:'
-          echo '  - Base Surface kernel/initrd verified unchanged.'
-          echo '  - INSTALL SURFACE PRO 4 is GRUB entry 0.'
-          echo '  - Automatic start after 5 seconds with no input.'
-          echo '  - Largest non-install-media disk is erased and used.'
-          echo '  - Desktop auto-login is enabled for surface.'
-          echo '  - Onboard starts automatically through the GTK wrapper.'
-          echo '  - Password for sudo/manual login: surface'
-          ls -lh "$OUT"
-
-      - name: Upload Surface autoinstall ISO
+      - name: Upload Surface direct-install ISO
         uses: actions/upload-artifact@v4
         with:
-          name: xubuntu-24.04.4-surface-pro-4-AUTOINSTALL-v5
+          name: xubuntu-24.04.4-surface-pro-4-DIRECT-INSTALL-v1
           path: |
-            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso
-            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.sha256
-            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.boot-report.txt
-            xubuntu-24.04.4-surface-pro-4-autoinstall-amd64.iso.initrd-report.txt
-            xubuntu-24.04.4-surface-pro-4-autoinstall.yaml
+            xubuntu-24.04.4-surface-pro-4-amd64.iso
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.sha256
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.boot-report.txt
+            xubuntu-24.04.4-surface-pro-4-amd64.iso.initrd-report.txt
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
