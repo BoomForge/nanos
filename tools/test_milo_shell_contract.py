@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.30 keyboard desktop and Pixel Studio."""
+"""Static and binary checks for the V0.30.1 desktop and Pixel Studio."""
 
 from pathlib import Path
 import re
@@ -90,13 +90,13 @@ def main():
         b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.30",
+        b"M.I.L.O V0.30.1",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.30",
+        b"M.I.L.O VERSION 0.30.1",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
@@ -107,6 +107,12 @@ def main():
         b"M16 V1 // 4-BIT INDEXED",
         b"ARROWS MOVE // ENTER DRAW // [ ] COLOUR",
         b"SAVE AS (AUTO .M16)",
+        b"NEW CANVAS // SELECT SIZE",
+        b"32 X 32",
+        b"64 X 48",
+        b"96 X 64",
+        b"128 X 96",
+        b"ARROWS SELECT // ENTER CREATE // ESC CANCEL",
         b"UNSAVED // CLOSE AGAIN",
         b"SUPPORTED: M16 V1 // MAX 128X96 // 16 COLOURS",
     ):
@@ -161,11 +167,11 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $904, %eax\n    movl $708, %edx",
+        "movl $888, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 904 + len("M.I.L.O V0.30") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.30.1") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Six independent native application windows retain focus, stacking,
@@ -424,6 +430,15 @@ def main():
         "image_begin_undo:",
         "image_undo:",
         "image_new:",
+        "image_new_commit:",
+        "gui_image_render_new_picker:",
+        "gui_image_new_picker_click:",
+        "image_new_move_selection:",
+        ".equ IMAGE_NEW_CHOICES, 4",
+        "image_new_width_table: .long 32, 64, 96, 128",
+        "image_new_height_table: .long 32, 48, 64, 96",
+        "image_new_mode: .byte 0",
+        "image_new_selection: .byte 1",
         "image_save:",
         "image_begin_save_as:",
         "image_name_append_extension:",
@@ -433,6 +448,10 @@ def main():
         "image_default_palette:",
     ):
         require(shell_source, fragment)
+    status_dword_guard = "cmpl $0, (KERNEL_LOAD_ADDRESS + image_status - _start)"
+    status_byte_guard = "cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)"
+    assert status_dword_guard not in shell_source
+    assert shell_source.count(status_byte_guard) >= 4
     for fragment in (
         "load_entry_to_image_buffer:",
         "movl $IMAGE_BUFFER_ADDRESS, %edi",
@@ -593,7 +612,7 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.30 desktop contract: %d-byte kernel, no-blank pointer, "
+        "M.I.L.O V0.30.1 desktop contract: %d-byte kernel, no-blank pointer, "
         "keyboard windows, Writer, FileHound, native M16 Pixel Studio OK"
         % len(kernel)
     )

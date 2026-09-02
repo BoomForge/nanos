@@ -50,9 +50,7 @@
 .equ IMAGE_TOOL_LINE, 4
 .equ IMAGE_TOOL_RECTANGLE, 5
 .equ IMAGE_TOOL_COUNT, 6
-.equ IMAGE_NEW_WIDTH, 64
-.equ IMAGE_NEW_HEIGHT, 48
-.equ IMAGE_NEW_SIZE, 1600
+.equ IMAGE_NEW_CHOICES, 4
 
 render_shell:
     call gui_save_terminal_state
@@ -1107,7 +1105,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $904, %eax
+    movl $888, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -2077,6 +2075,12 @@ gui_image_name_complete:
 gui_image_undo_face_ready:
     call gui_draw_small_button
 
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    je gui_image_new_picker_complete
+    call gui_image_render_new_picker
+    jmp gui_image_render_complete
+gui_image_new_picker_complete:
+
     movzbl (KERNEL_LOAD_ADDRESS + image_status - _start), %eax
     testl %eax, %eax
     jz gui_image_render_ready
@@ -2356,6 +2360,62 @@ gui_image_tool_face_ready:
     movl $136, %ebx
     movl $52, %ecx
     call gui_draw_small_button
+    popal
+    ret
+
+/* New Canvas is deliberately small and modal. The four useful sizes remain
+ * within the native M16 limit and are equally accessible by pointer or keys. */
+gui_image_render_new_picker:
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_heading - _start), %esi
+    movl $320, %eax
+    movl $196, %edx
+    movl $GUI_COLOR_PINK, %ecx
+    call gui_print_at
+
+    movl $320, %eax
+    movl $232, %ebx
+    movl $240, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_32 - _start), %edx
+    movl $0, %edi
+    call gui_image_draw_new_choice
+    movl $320, %eax
+    movl $280, %ebx
+    movl $240, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_64 - _start), %edx
+    movl $1, %edi
+    call gui_image_draw_new_choice
+    movl $320, %eax
+    movl $328, %ebx
+    movl $240, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_96 - _start), %edx
+    movl $2, %edi
+    call gui_image_draw_new_choice
+    movl $320, %eax
+    movl $376, %ebx
+    movl $240, %ecx
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_128 - _start), %edx
+    movl $3, %edi
+    call gui_image_draw_new_choice
+
+    movl $(KERNEL_LOAD_ADDRESS + gui_image_new_help - _start), %esi
+    movl $320, %eax
+    movl $432, %edx
+    movl $GUI_COLOR_DIM, %ecx
+    call gui_print_at
+    ret
+
+/* EAX=x, EBX=y, ECX=width, EDX=label, EDI=choice. */
+gui_image_draw_new_choice:
+    pushal
+    movzbl (KERNEL_LOAD_ADDRESS + image_new_selection - _start), %esi
+    cmpl %edi, %esi
+    jne gui_image_new_choice_idle
+    movl $GUI_COLOR_ACTIVE, %esi
+    jmp gui_image_new_choice_ready
+gui_image_new_choice_idle:
+    movl $GUI_COLOR_CLASSIC, %esi
+gui_image_new_choice_ready:
+    call gui_draw_classic_button
     popal
     ret
 
@@ -3148,6 +3208,8 @@ gui_editor_click_unchanged:
 /* Pixel editor client routing uses local window coordinates so the controls
  * remain correct after moving or resizing the window. */
 gui_image_click:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    jne gui_image_new_picker_click
     cmpb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
     jne gui_click_complete
     movl (KERNEL_LOAD_ADDRESS + wm_local_y - _start), %edx
@@ -3221,6 +3283,26 @@ gui_image_click_canvas:
     jz gui_click_complete
     call image_apply_tool
     ret
+
+gui_image_new_picker_click:
+    movl (KERNEL_LOAD_ADDRESS + wm_local_x - _start), %eax
+    cmpl $152, %eax
+    jb gui_click_complete
+    cmpl $392, %eax
+    jae gui_click_complete
+    movl (KERNEL_LOAD_ADDRESS + wm_local_y - _start), %eax
+    cmpl $184, %eax
+    jb gui_click_complete
+    subl $184, %eax
+    xorl %edx, %edx
+    movl $48, %ecx
+    divl %ecx
+    cmpl $IMAGE_NEW_CHOICES, %eax
+    jae gui_click_complete
+    cmpl $40, %edx
+    jae gui_click_complete
+    movb %al, (KERNEL_LOAD_ADDRESS + image_new_selection - _start)
+    jmp image_new_commit
 
 gui_file_click:
     cmpl $116, %edx
@@ -3969,6 +4051,7 @@ image_open_window:
     movb $0, (KERNEL_LOAD_ADDRESS + image_anchor_valid - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_save_status - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_close_armed - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_zoom - _start)
@@ -4051,7 +4134,7 @@ image_validate_complete:
 /* Convert the current physical pointer to an M16 pixel. Returns EAX=1 and
  * updates the keyboard caret when inside the rendered image, otherwise zero. */
 image_pointer_from_mouse:
-    cmpl $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
     jne image_pointer_outside
     movl (KERNEL_LOAD_ADDRESS + mouse_x - _start), %eax
     subl (KERNEL_LOAD_ADDRESS + wm_x + WM_IMAGE * 4 - _start), %eax
@@ -4081,7 +4164,9 @@ image_pointer_outside:
 
 /* EAX=dx, EDX=dy. */
 image_move_cursor:
-    cmpl $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    jne image_new_move_selection
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
     jne image_move_complete
     cmpb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
     jne image_move_complete
@@ -4111,7 +4196,35 @@ image_move_y_ready:
 image_move_complete:
     ret
 
+image_new_move_selection:
+    testl %edx, %edx
+    jnz image_new_move_direction_ready
+    movl %eax, %edx
+image_new_move_direction_ready:
+    testl %edx, %edx
+    jz image_new_move_complete
+    movzbl (KERNEL_LOAD_ADDRESS + image_new_selection - _start), %eax
+    js image_new_move_previous
+    incl %eax
+    cmpl $IMAGE_NEW_CHOICES, %eax
+    jb image_new_move_store
+    xorl %eax, %eax
+    jmp image_new_move_store
+image_new_move_previous:
+    testl %eax, %eax
+    jnz image_new_move_previous_ready
+    movl $IMAGE_NEW_CHOICES, %eax
+image_new_move_previous_ready:
+    decl %eax
+image_new_move_store:
+    movb %al, (KERNEL_LOAD_ADDRESS + image_new_selection - _start)
+    call render_shell
+image_new_move_complete:
+    ret
+
 image_keyboard_apply:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    jne image_new_commit
     cmpb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
     jne image_name_commit
     call image_apply_tool
@@ -4122,6 +4235,8 @@ image_keyboard_apply:
 image_handle_character:
     cmpb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
     jne image_name_character
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    jne image_character_complete
     cmpb $0, (KERNEL_LOAD_ADDRESS + control_pressed - _start)
     je image_character_tool
     cmpb $'s', %al
@@ -4136,6 +4251,7 @@ image_handle_character:
     je image_new
     cmpb $'N', %al
     je image_new
+image_character_complete:
     ret
 image_character_tool:
     cmpb $'+', %al
@@ -4224,6 +4340,12 @@ image_zoom_store:
     ret
 
 image_escape:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    je image_escape_name
+    movb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    call render_shell
+    ret
+image_escape_name:
     cmpb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
     je image_escape_anchor
     movb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
@@ -4309,7 +4431,7 @@ image_name_invalid:
     ret
 
 image_save:
-    cmpl $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
     jne image_save_failed
     movl $IMAGE_BUFFER_ADDRESS, (KERNEL_LOAD_ADDRESS + write_content - _start)
     movl (KERNEL_LOAD_ADDRESS + image_file_size - _start), %eax
@@ -4342,6 +4464,7 @@ image_exit:
 image_close_now:
     movb $0, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_close_armed - _start)
     movzbl (KERNEL_LOAD_ADDRESS + wm_flags + WM_IMAGE - _start), %edx
     andb $~(WM_FLAG_VISIBLE | WM_FLAG_MINIMIZED | WM_FLAG_MAXIMIZED), %dl
@@ -4351,7 +4474,7 @@ image_close_now:
     ret
 
 image_apply_tool:
-    cmpl $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)
     jne image_apply_complete
     movzbl (KERNEL_LOAD_ADDRESS + image_tool - _start), %eax
     cmpl $IMAGE_TOOL_PICKER, %eax
@@ -4467,24 +4590,41 @@ image_undo:
     call render_shell
     ret
 
-/* New creates a useful fixed 64x48 canvas. Fixed dimensions keep the dialog
- * and heap cost at zero; Save As supplies the only required metadata. */
+/* New opens a compact size picker. Commit derives the packed M16 byte count
+ * from the selected dimensions, then seeds the shared sixteen-colour palette. */
 image_new:
+    movb $1, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + image_new_selection - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_anchor_valid - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_save_status - _start)
+    call render_shell
+    ret
+
+image_new_commit:
     call image_begin_undo
     movl $IMAGE_BUFFER_ADDRESS, %edi
     xorl %eax, %eax
-    movl $(IMAGE_NEW_SIZE / 4), %ecx
+    movl $(IMAGE_LIMIT / 4), %ecx
     rep stosl
     movl $0x3631494d, IMAGE_BUFFER_ADDRESS
     movb $1, IMAGE_BUFFER_ADDRESS + 4
     movb $16, IMAGE_BUFFER_ADDRESS + 5
-    movw $IMAGE_NEW_WIDTH, IMAGE_BUFFER_ADDRESS + 6
-    movw $IMAGE_NEW_HEIGHT, IMAGE_BUFFER_ADDRESS + 8
+    movzbl (KERNEL_LOAD_ADDRESS + image_new_selection - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + image_new_width_table - _start)(,%eax,4), %ebx
+    movl (KERNEL_LOAD_ADDRESS + image_new_height_table - _start)(,%eax,4), %ecx
+    movw %bx, IMAGE_BUFFER_ADDRESS + 6
+    movw %cx, IMAGE_BUFFER_ADDRESS + 8
+    movl %ebx, %eax
+    imull %ecx, %eax
+    incl %eax
+    shrl $1, %eax
+    addl $64, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
     movl $(KERNEL_LOAD_ADDRESS + image_default_palette - _start), %esi
     movl $(IMAGE_BUFFER_ADDRESS + 16), %edi
     movl $48, %ecx
     rep movsb
-    movl $IMAGE_NEW_SIZE, (KERNEL_LOAD_ADDRESS + image_file_size - _start)
     movl $(KERNEL_LOAD_ADDRESS + image_untitled_name - _start), %esi
     movl $(KERNEL_LOAD_ADDRESS + image_filename - _start), %edi
     movl $13, %ecx
@@ -4493,6 +4633,7 @@ image_new:
     movl $0, (KERNEL_LOAD_ADDRESS + image_cursor_y - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_anchor_valid - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_name_mode - _start)
+    movb $0, (KERNEL_LOAD_ADDRESS + image_new_mode - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + image_zoom - _start)
     call image_validate
     call image_mark_changed
@@ -5273,7 +5414,7 @@ gui_window_image_caption: .asciz "M.I.L.O PIXEL STUDIO"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.30"
+gui_overlay_version: .asciz "0.30.1"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -5301,7 +5442,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "F1 // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.30"
+gui_taskbar_version: .asciz "M.I.L.O V0.30.1"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -5338,7 +5479,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.30"
+gui_version_status: .asciz "KERNEL   0.30.1"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"
@@ -5394,6 +5535,12 @@ gui_image_fill_label: .asciz "FILL"
 gui_image_line_label: .asciz "LINE"
 gui_image_rect_label: .asciz "RECT"
 gui_image_new_label: .asciz "NEW"
+gui_image_new_heading: .asciz "NEW CANVAS // SELECT SIZE"
+gui_image_new_32: .asciz "32 X 32"
+gui_image_new_64: .asciz "64 X 48"
+gui_image_new_96: .asciz "96 X 64"
+gui_image_new_128: .asciz "128 X 96"
+gui_image_new_help: .asciz "ARROWS SELECT // ENTER CREATE // ESC CANCEL"
 gui_image_save_label: .asciz "SAVE"
 gui_image_save_as_label: .asciz "AS"
 gui_image_undo_label: .asciz "UNDO"
@@ -5427,6 +5574,10 @@ image_default_palette:
     .byte 85, 71, 93, 32, 21, 37, 131, 107, 136, 214, 166, 242
     .byte 242, 232, 244, 111, 228, 170, 239, 112, 232, 239, 102, 132
     .byte 54, 42, 63, 104, 79, 116, 175, 103, 189, 255, 255, 255
+
+.align 4
+image_new_width_table: .long 32, 64, 96, 128
+image_new_height_table: .long 32, 48, 64, 96
 
 image_hex_labels:
     .byte '0', 0, '1', 0, '2', 0, '3', 0
@@ -5570,6 +5721,8 @@ image_undo_valid: .byte 0
 image_anchor_valid: .byte 0
 image_mouse_painting: .byte 0
 image_name_mode: .byte 0
+image_new_mode: .byte 0
+image_new_selection: .byte 1
 image_name_length: .byte 0
 image_save_status: .byte 0
 image_close_armed: .byte 0

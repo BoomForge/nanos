@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.30 provides:
+V0.30.1 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -33,7 +33,8 @@ V0.30 provides:
 - a native M16 Pixel Studio for validated 128x96-or-smaller, 16-colour indexed
   images, with pencil/eraser drag, colour picker, bounded flood fill, line and
   rectangle tools, palette selection, zoom, a pixel caret, one full-image undo,
-  New, verified FAT12 Save/Save As, automatic `.M16`, and guarded dirty close;
+  selectable 32x32/64x48/96x64/128x96 New canvases, verified FAT12 Save/Save As,
+  automatic `.M16`, guarded dirty close, and corrected byte-accurate edit gates;
 - a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
   keyboard FileHound browsing, `Alt+F9` minimize, `Alt+F4` guarded close, and a
   30-entry command history; and
@@ -59,13 +60,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.30.img
+build/M.I.L.O-floppy-V0.30.1.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -89,7 +90,8 @@ date and time. M.I.L.O contains no network time client or timezone database.
   open. Opening `MILO.M16` launches native Pixel Studio.
 - In Pixel Studio, use P/E/I/F/L/R for Pencil, Eraser, Picker, Fill, Line, and
   Rectangle; arrows move the pixel caret, Enter draws, `[`/`]` changes colour,
-  `+`/`-` zooms, Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N creates a 64x48 canvas.
+  `+`/`-` zooms, Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N opens the canvas-size
+  picker. Select a size with arrows and Enter or click it; Esc cancels.
 - Select Writer text with Shift+Arrow or a mouse drag, then use Ctrl+B/I/U or
   the toolbar to style existing text. Ctrl+L/C/R/J applies paragraph alignment.
 - Typing automatically opens or restores Terminal.

@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.30 extends the accepted V0.26 native root desktop. Its interaction model
+V0.30.1 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -46,7 +46,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.30` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.30.1` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -208,18 +208,22 @@ separate 8 KiB workspace so Writer remains intact, scales with crisp nearest-
 neighbour blocks, and displays the active palette and dimensions. `MILO.M16`
 is the built-in 96x64 verification image.
 
-V0.30 edits that same packed buffer directly. Pencil and eraser support mouse
+V0.30.1 edits that same packed buffer directly. Pencil and eraser support mouse
 dragging; Picker changes the active palette index; Fill uses a bounded queue;
 Line and Rectangle use a two-Enter/two-click anchor; and `+`/`-` select integer
 zoom. A complete 8 KiB image snapshot at `0x36000` provides one real undo, and
 the fill queue at `0x38000` is sized exactly for the 128x96 format ceiling.
-New creates a fixed 64x48 canvas, while Save and Save As use the same verified
-FAT12 writer as Writer. Save As appends `.M16` when it is omitted. Dirty images
-require a second close, matching Writer's explicit loss guard.
+New opens a modal picker for 32x32, 64x48, 96x64, or 128x96 canvases. The picker
+accepts arrows and Enter, a direct click, or Esc to cancel. Save and Save As use
+the same verified FAT12 writer as Writer, appending `.M16` when it is omitted.
+Dirty images require a second close, matching Writer's explicit loss guard.
+V0.30.1 also corrects the image-state checks to read the one-byte status field;
+the earlier 32-bit reads included neighbouring palette/tool state and rejected
+otherwise valid drawing, keyboard movement, and Save operations.
 
 Pixel Studio is keyboard complete: P/E/I/F/L/R select the six tools, arrows
 move the caret, Enter or Space applies the active tool, `[`/`]` changes colour,
-Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N creates a new canvas.
+Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N opens the canvas picker.
 
 ## Mouse path
 
@@ -267,6 +271,6 @@ M16 validation/rendering, palette data, and cursor storage.
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.1.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

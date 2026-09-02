@@ -189,6 +189,12 @@ undo snapshot. New creates a strict 64x48 canvas; Save and Save As reuse the
 verified FAT12 writer, append `.M16` when needed, and protect dirty work with a
 second-close guard. The application remains independent from Writer and adds no
 heap, codec framework, external runtime, or Linux code.
+Runtime verification then exposed a state-width defect: four editing paths read
+the one-byte image status as a 32-bit value, so the adjacent nonzero palette and
+tool bytes made valid canvases appear unavailable. **V0.30.1** uses byte-accurate
+status gates for pointer drawing, keyboard movement, tool dispatch, and Save.
+It also replaces the fixed New operation with a modal, mouse-and-keyboard canvas
+picker offering 32x32, 64x48, 96x64, and the full 128x96 M16 ceiling.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -196,8 +202,8 @@ heap, codec framework, external runtime, or Linux code.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.30 candidate kernel is 41,879 bytes; 48 KiB is reserved for controlled
-  growth, leaving 7,273 bytes in the current kernel region.
+- The V0.30.1 candidate kernel is 42,527 bytes; 48 KiB is reserved for controlled
+  growth, leaving 6,625 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
@@ -424,6 +430,15 @@ contract rather than compensating with per-screen coordinate offsets.
   as the small lossless editable working format.
 - Keep dimensions and memory limits strict enough for the dedicated appliance.
 
+### V0.30.1 — verified drawing and selectable canvases
+
+- Correct every Pixel Studio edit/save availability check to read only the
+  declared one-byte status instead of neighbouring palette and tool state.
+- Replace fixed-size New with a visible modal choice of 32x32, 64x48, 96x64,
+  and 128x96 canvases.
+- Keep the picker fully operable by arrows/Enter/Escape and by direct clicks,
+  with no heap or unbounded allocation.
+
 ### V0.31 — image interchange, deterministic M.I.L.O, and terminal expansion
 
 - Add uncompressed BMP read/write first because it requires little codec code
@@ -535,3 +550,4 @@ journal records intent and rationale.
 | `complete V0.29.1 keyboard window control` | Added standard `Alt+F9` minimize and `Alt+F4` close shortcuts for the focused application, retained Writer's dirty-document guard, and reordered the roadmap around native image editing, Mavica-oriented interchange, deterministic M.I.L.O/terminal expansion, and in-system application development. | Finish genuine keyboard-only desktop control and record the newly agreed priorities before the image editor begins. |
 | `combine V0.31 image and deterministic milestones` | Merged image interchange/Mavica import with deeper deterministic M.I.L.O and Terminal expansion as V0.31, then renumbered in-system development to V0.32 and sound/state work to V0.33. | Deliver the post-editor image and intelligence work as one coherent release using the same file, application, command, and error paths. |
 | `add V0.30 native Pixel Studio` | Replaced the read-only M16 viewer with a keyboard-complete native pixel editor providing Pencil, Eraser, Picker, bounded Fill, Line, Rectangle, palette and zoom controls, a visible pixel caret, one full-image undo, fixed-size New, verified Save/Save As with automatic `.M16`, and dirty-close protection. | Make low-resolution image work genuinely useful while editing the compact packed format directly, retaining strict fixed-memory limits, and reusing the already verified FAT12 persistence path. |
+| `fix V0.30.1 drawing gates and canvas creation` | Corrected four one-byte Pixel Studio state checks that had accidentally included adjacent state, then added a modal keyboard-and-mouse New Canvas picker for 32x32, 64x48, 96x64, and 128x96 M16 images. | Runtime testing showed every drawing tool was blocked despite a valid image, while useful image work needed deliberate canvas sizing rather than a single hard-coded shape. |
