@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.30.2 provides:
+V0.31 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -35,11 +35,18 @@ V0.30.2 provides:
   rectangle tools, palette selection, zoom, a pixel caret, one full-image undo,
   selectable 32x32/64x48/96x64/128x96 New canvases, verified FAT12 Save/Save As,
   automatic `.M16`, guarded dirty close, corrected byte-accurate edit gates,
-  direct dirty-pixel presentation, and interpolated fast mouse strokes;
+  direct dirty-pixel presentation, interpolated fast mouse strokes, and a
+  corrected full-width Rectangle control;
 - a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
   keyboard FileHound browsing, `Alt+F9` minimize, `Alt+F4` guarded close, and a
-  30-entry command history; and
-- Nyx-derived deterministic pattern and trait learning without phrase storage.
+  30-entry command history;
+- a text-first Terminal command surface with categorized help, `status`,
+  `clock`/`date`, `apps`, direct `writer` launch, and `cls`/`ls`/`ver` aliases;
+- Nyx-derived deterministic pattern and trait learning without phrase storage,
+  now with typo-aware token categories for greetings, thanks, farewells,
+  identity, wellbeing, and capability questions; and
+- a tiny PIT-timed PC-speaker layer with boot, M.I.L.O interaction, and Writer
+  save cues plus `sound on`, `sound off`, and `beep` controls.
 
 The complete scope, architectural boundaries, roadmap, and commit rationale
 are maintained in [`direction.md`](direction.md).
@@ -61,13 +68,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.30.2.img
+build/M.I.L.O-floppy-V0.31.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.2.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.31.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `
@@ -93,6 +100,13 @@ date and time. M.I.L.O contains no network time client or timezone database.
   Rectangle; arrows move the pixel caret, Enter draws, `[`/`]` changes colour,
   `+`/`-` zooms, Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N opens the canvas-size
   picker. Select a size with arrows and Enter or click it; Esc cancels.
+- In Terminal, enter `help` for the categorized command map. `status` summarizes
+  local version, RAM, storage, clock, and sound; `writer` opens a new document;
+  `beep` tests the PC speaker, and `sound off`/`sound on` controls cues for the
+  current session.
+- Talk normally to M.I.L.O for deterministic responses. Social meaning is
+  classified from bounded token patterns and typos, while persisted learning
+  remains structural and stores none of the operator's sentences.
 - Select Writer text with Shift+Arrow or a mouse drag, then use Ctrl+B/I/U or
   the toolbar to style existing text. Ctrl+L/C/R/J applies paragraph alignment.
 - Typing automatically opens or restores Terminal.

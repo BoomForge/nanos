@@ -10,7 +10,10 @@ ACTIONS = {
     "patterns": "traits", "learning": "traits", "read": "read",
     "open": "read", "type": "read", "edit": "edit", "find": "find",
     "search": "find", "locate": "find", "show": "show", "tell": "tell",
-    "clear": "clear",
+    "clear": "clear", "status": "status", "health": "status",
+    "clock": "clock", "date": "clock", "apps": "apps",
+    "applications": "apps", "sound": "sound", "audio": "sound",
+    "beep": "beep",
 }
 
 FILLERS = {
@@ -26,6 +29,14 @@ GUARDED = {
     "rename": "guard-rename", "ren": "guard-rename",
     "write": "guard-write", "create": "guard-write",
     "copy": "guard-copy", "duplicate": "guard-copy",
+}
+
+SOCIAL = {
+    "hello": 1, "hey": 1, "hi": 1,
+    "thank": 2, "thanks": 2,
+    "bye": 4, "goodbye": 4,
+    "who": 8, "name": 8,
+    "how": 16, "what": 32, "can": 64, "do": 128,
 }
 
 
@@ -104,6 +115,27 @@ def classify(text):
     return "read" if intent == "show" else "conversation"
 
 
+def classify_social(text):
+    flags = 0
+    for token in normalize(text).split():
+        for word, flag in SOCIAL.items():
+            if bounded_match(token, word):
+                flags |= flag
+    if flags & 2:
+        return "thanks"
+    if flags & 4:
+        return "farewell"
+    if flags & 8:
+        return "identity"
+    if flags & 16:
+        return "wellbeing"
+    if flags & 32 and flags & (64 | 128):
+        return "capability"
+    if flags & 1:
+        return "greeting"
+    return "generic"
+
+
 def variants(word):
     yield word
     for index in range(len(word)):
@@ -127,6 +159,10 @@ def main():
         "please show me the files": "directory",
         "M.I.L.O, could you open NOTES.TXT?": "read",
         "what's the version?": "version",
+        "please show system health": "status",
+        "what is the date?": "clock",
+        "show applications": "apps",
+        "audo": "sound",
         "how are you?": "conversation",
         "delet NOTES.TXT": "guard-delete",
         "tell me delet NOTES.TXT": "guard-delete",
@@ -144,6 +180,19 @@ def main():
     assert bounded_match("serch", "search")
     assert not bounded_match("rm", "ram")
     assert match_action("hell") == "ambiguous"
+
+    social_checks = {
+        "hello M.I.L.O": "greeting",
+        "thnaks for that": "thanks",
+        "goodbye": "farewell",
+        "who are you?": "identity",
+        "how are you?": "wellbeing",
+        "what can you do?": "capability",
+        "ordinary local words": "generic",
+    }
+    for text, expected in social_checks.items():
+        actual = classify_social(text)
+        assert actual == expected, (text, expected, actual)
 
     # Refuse future keyword tables that make one typo resolve to two intents.
     candidates = set()
@@ -165,8 +214,10 @@ def main():
                    if bounded_match(candidate, word)}
         assert len(intents) <= 1, (candidate, sorted(intents))
 
-    print("M.I.L.O routing contract: %d phrases, %d typo candidates OK" %
-          (len(checks), len(candidates) + len(guarded_candidates)))
+    print("M.I.L.O routing contract: %d operational + %d social phrases, "
+          "%d typo candidates OK" %
+          (len(checks), len(social_checks),
+           len(candidates) + len(guarded_candidates)))
 
 
 if __name__ == "__main__":

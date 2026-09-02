@@ -201,6 +201,16 @@ composition for desktop transitions, but gives live Pencil/Eraser strokes a
 bounded dirty-pixel path that updates the visible and backing frames together.
 Integer line interpolation fills pixels between PS/2 samples, so fast strokes
 remain continuous and aligned with the pointer rather than becoming sparse.
+Runtime testing then found that Rectangle's visible button extended forty
+pixels beyond its routed tool region even though the rectangle rasterizer was
+sound. **V0.31** restores the complete button hitbox and deliberately moves the
+active feature budget away from image interchange. It establishes the
+text-first milestone instead: categorized and aliased Terminal help, local
+status/clock/application discovery, direct Writer launch, deterministic social
+token patterns, and a minimal native PC-speaker layer with boot, M.I.L.O,
+Writer-save, and explicit test cues. Pixel Studio remains a maintained
+supporting application while Writer, command interaction, and M.I.L.O become
+the primary development path.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -208,8 +218,8 @@ remain continuous and aligned with the pointer rather than becoming sparse.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.30.2 candidate kernel is 43,131 bytes; 48 KiB is reserved for controlled
-  growth, leaving 6,021 bytes in the current kernel region.
+- The V0.31 candidate kernel is 45,075 bytes; 48 KiB is reserved for controlled
+  growth, leaving 4,077 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
@@ -454,27 +464,33 @@ contract rather than compensating with per-screen coordinate offsets.
 - Interpolate source pixels between pointer samples so quick motion produces a
   continuous, accurate stroke rather than disconnected points.
 
-### V0.31 — image interchange, deterministic M.I.L.O, and terminal expansion
+### V0.31 — text-first interaction and native sound
 
-- Add uncompressed BMP read/write first because it requires little codec code
-  and gives the editor a widely readable lossless interchange format.
-- Add read-only baseline JPEG import for Mavica photographs, deliberately
-  excluding progressive and uncommon JPEG modes at first. Decode into the
-  bounded indexed workspace and save edits as M16 or BMP.
-- Measure PNG decoding and JPEG encoding as optional modules rather than
-  assuming either is small. Do not consume the remaining kernel budget merely
-  to claim a file extension.
-- Complete the image milestone and deeper M.I.L.O work as one integrated
-  release so imported files, application launching, errors, and natural command
-  requests are tested against the same Terminal and FileHound paths.
-- Expand Nyx-derived intent routing, bounded typo recovery, structural trait
-  learning, canon response selection, and transparent explanations of actions.
-- Grow the command environment with discoverable help, aliases or macros,
-  stronger navigation and file tools, script launching, and explicit errors.
-- Preserve deterministic, offline behaviour and never store operator sentences
-  as learned personality data.
+- Correct the complete Rectangle-button hit region while retaining the already
+  working bounded M16 rasterizer and treating Pixel Studio as a stable support
+  application.
+- Make Terminal help task-oriented and add `status`, `clock`, `date`, `apps`,
+  `writer`, `sound on`, `sound off`, `beep`, and compact `cls`/`ls`/`ver`
+  aliases without weakening guarded file changes.
+- Recognize greeting, gratitude, farewell, identity, wellbeing, and capability
+  token patterns after operational routing declines the input. Reuse bounded
+  typo matching while persisting only structural counters and traits.
+- Add a native PC-speaker/PIT layer with short boot, M.I.L.O interaction, and
+  Writer-save cues, an explicit test command, and an in-session mute control.
+- Keep Writer and transparent commands as the appliance's primary workflow.
 
-### V0.32 — in-system application development
+### V0.32 — deeper Writer, M.I.L.O, and Terminal workflow
+
+- Expand Nyx-derived intent routing and structural traits without phrase
+  storage, including clearer explanations of what M.I.L.O did or declined.
+- Add stronger document navigation, discoverable file operations, useful
+  command aliases/macros, and small recoverable script execution.
+- Improve keyboard-first Writer and Terminal transitions before adding more
+  graphical application breadth.
+- Keep sound cues short, optional, and state-driven rather than introducing a
+  continuous multimedia engine.
+
+### V0.33 — in-system application development
 
 - Define a tiny documented application ABI for windows, drawing, keyboard,
   files, and lifecycle events instead of allowing applications to depend on
@@ -485,11 +501,13 @@ contract rather than compensating with per-screen coordinate offsets.
   toolchain and unrestricted native kernel code are explicitly not the first
   target because they would be much larger and less recoverable.
 
-### V0.33 — sound and richer M.I.L.O state
+### V0.34 — optional image interchange and richer physical state
 
-- Small PC-speaker or similarly minimal sound cues.
-- Ring states for idle, activity, success, warning, and M.I.L.O interaction.
-- No continuous audio engine unless later hardware makes it worthwhile.
+- Measure uncompressed BMP interchange and read-only baseline JPEG import as
+  optional modules; do not consume the fixed kernel region merely to claim a
+  file extension.
+- Add ring states for idle, activity, success, warning, and M.I.L.O interaction.
+- Extend sound only when the selected hardware provides a small, auditable path.
 
 ### Hardware and V1.0
 
@@ -567,3 +585,4 @@ journal records intent and rationale.
 | `add V0.30 native Pixel Studio` | Replaced the read-only M16 viewer with a keyboard-complete native pixel editor providing Pencil, Eraser, Picker, bounded Fill, Line, Rectangle, palette and zoom controls, a visible pixel caret, one full-image undo, fixed-size New, verified Save/Save As with automatic `.M16`, and dirty-close protection. | Make low-resolution image work genuinely useful while editing the compact packed format directly, retaining strict fixed-memory limits, and reusing the already verified FAT12 persistence path. |
 | `fix V0.30.1 drawing gates and canvas creation` | Corrected four one-byte Pixel Studio state checks that had accidentally included adjacent state, then added a modal keyboard-and-mouse New Canvas picker for 32x32, 64x48, 96x64, and 128x96 M16 images. | Runtime testing showed every drawing tool was blocked despite a valid image, while useful image work needed deliberate canvas sizing rather than a single hard-coded shape. |
 | `optimize V0.30.2 continuous pixel drawing` | Replaced per-sample whole-desktop composition with direct dirty-pixel presentation in the visible and backing frames, limited stroke-boundary refreshes to Pixel Studio, and interpolated Pencil/Eraser paths between PS/2 samples. | Runtime testing confirmed correctness but exposed extreme input latency and sparse cursor tracking; continuous drawing must be responsive before image interchange work begins. |
+| `add V0.31 text-first interaction and native sound` | Restored Rectangle's full visible tool hitbox, reorganized Terminal help, added local status/clock/application discovery, Writer launch and command aliases, introduced deterministic social token categories with bounded typo matching, and added PIT-timed PC-speaker boot, M.I.L.O, Writer-save, mute, and test cues. | Pixel Studio is now adequate as a supporting tool; the appliance's primary value is offline writing and transparent M.I.L.O interaction, which need the remaining kernel budget more than additional image formats. |

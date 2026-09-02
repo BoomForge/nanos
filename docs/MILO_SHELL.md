@@ -1,6 +1,6 @@
 # M.I.L.O native root-menu desktop
 
-V0.30.2 extends the accepted V0.26 native root desktop. Its interaction model
+V0.31 extends the accepted V0.26 native root desktop. Its interaction model
 deliberately resembles Fluxbox: begin on a quiet root surface, right-click at
 the pointer to open a compact application menu, and work in independent
 stacking windows. A sparse minimized-application taskbar now anchors the bottom
@@ -46,7 +46,7 @@ remains owned by the custom BIOS loader and direct assembly kernel.
 - Clicking a task button restores, focuses, and raises that application.
 - When no application is minimized, the bar explicitly says so rather than
   displaying non-functional placeholders.
-- The right edge shows `M.I.L.O V0.30.2` above the CMOS date and time. Both lines
+- The right edge shows `M.I.L.O V0.31` above the CMOS date and time. Both lines
   share the same right boundary.
 - The date format is `DD/MM/YYYY` and the clock is 24-hour `HH:MM`.
 
@@ -60,7 +60,7 @@ normal windows naturally cover it. It reports:
 - live input-event rate and a rolling 20-second graph scaled across 0--120+
   events per second;
 - current state for System, FileHound, Traits, Terminal, Writer, and Pixel
-  Viewer (`ACTIVE`, `OPEN`, `MINIMIZED`, or `CLOSED`);
+  Studio (`ACTIVE`, `OPEN`, `MINIMIZED`, or `CLOSED`);
 - open and minimized application counts;
 - total processed keyboard and complete mouse-packet event count;
 - BIOS-detected total usable RAM;
@@ -82,9 +82,9 @@ network time dependency.
 
 ## Native window model
 
-- System, FileHound, Traits, Terminal, and Writer are five kernel-owned application
-  windows, not regions of one dashboard.
-- Windows overlap and a five-entry z-order determines back-to-front rendering.
+- System, FileHound, Traits, Terminal, Writer, and Pixel Studio are six
+  kernel-owned application windows, not regions of one dashboard.
+- Windows overlap and a six-entry z-order determines back-to-front rendering.
 - Clicking a visible window focuses and raises it.
 - Dragging a non-maximized titlebar shows a lightweight XOR outline; releasing
   commits a position bounded to the 1024-by-704 workspace above the taskbar.
@@ -208,7 +208,7 @@ separate 8 KiB workspace so Writer remains intact, scales with crisp nearest-
 neighbour blocks, and displays the active palette and dimensions. `MILO.M16`
 is the built-in 96x64 verification image.
 
-V0.30.2 edits that same packed buffer directly. Pencil and eraser support mouse
+V0.31 edits that same packed buffer directly. Pencil and eraser support mouse
 dragging; Picker changes the active palette index; Fill uses a bounded queue;
 Line and Rectangle use a two-Enter/two-click anchor; and `+`/`-` select integer
 zoom. A complete 8 KiB image snapshot at `0x36000` provides one real undo, and
@@ -220,15 +220,43 @@ Dirty images require a second close, matching Writer's explicit loss guard.
 V0.30.1 also corrects the image-state checks to read the one-byte status field;
 the earlier 32-bit reads included neighbouring palette/tool state and rejected
 otherwise valid drawing, keyboard movement, and Save operations.
-V0.30.2 removes whole-desktop composition from the continuous brush path.
+V0.30.2 removed whole-desktop composition from the continuous brush path.
 Mouse-down and release repaint only the completed Pixel Studio window; movement
 packets update only changed scaled pixel blocks in both the visible framebuffer
 and compositor backing frame. Bresenham interpolation fills the source pixels
 between PS/2 samples, preserving fast-stroke continuity and pointer accuracy.
+V0.31 corrects the Rectangle button's routed boundary to cover its full visible
+52-pixel width. The rasterizer remains a two-step tool: the first action anchors
+one corner and the second commits the four edges.
 
 Pixel Studio is keyboard complete: P/E/I/F/L/R select the six tools, arrows
 move the caret, Enter or Space applies the active tool, `[`/`]` changes colour,
 Ctrl+Z undoes, Ctrl+S saves, and Ctrl+N opens the canvas picker.
+
+## Text-first Terminal and deterministic M.I.L.O
+
+V0.31 makes the command surface task-oriented rather than presenting one flat
+list. `help` groups core status, file, Writer, M.I.L.O, and sound controls.
+`status` reports the local version, RAM, FAT12 capacity, RTC, and sound state;
+`clock` and `date` expose the offline RTC; `apps` documents the F1 application
+menu; and `writer` opens a fresh native document. `cls`, `ls`, and `ver` are
+compact aliases for clear, directory listing, and version.
+
+Operational input still passes through the Nyx-derived deterministic router
+first, with unique one-edit typo handling and guarded file mutation. When no
+operation claims the input, M.I.L.O now classifies token patterns for greetings,
+gratitude, farewells, identity, wellbeing, and capability questions. This is
+not phrase memorization: the transient normalized sentence is discarded, and
+only the existing bounded structural profile is saved in `MILO.MEM`.
+
+## Native sound
+
+The sound layer programs the PC speaker through PIT channel 2 and times each
+short cue against the existing PIT channel 0 count. It adds a two-note boot cue,
+a short M.I.L.O response cue, and a Writer-save confirmation without a mixer,
+sample buffer, driver framework, or continuous audio engine. `beep` performs an
+explicit test. `sound off` silences the speaker immediately and disables cues;
+`sound on` restores them for the current session.
 
 ## Mouse path
 
@@ -271,11 +299,13 @@ selection, inline formatting and alignment, automatic `.TXT` Save As,
 atomic full-frame and Writer-region composition,
 resize-safe glyph rendering, pending-action
 buffer isolation, title actions, no-blank cursor handoff, PS/2 button handling,
-M16 validation/rendering, palette data, and cursor storage.
+M16 validation/rendering, complete Rectangle routing, palette data, native
+PC-speaker/PIT control, categorized commands, deterministic social-token
+routing, and cursor storage.
 
 Final interaction must be checked in QEMU on Windows:
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.2.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.31.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" -m 128M -rtc base=localtime -boot a -drive "if=floppy,format=raw,file=$img"
 ```

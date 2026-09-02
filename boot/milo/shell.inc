@@ -1113,7 +1113,7 @@ wm_render_taskbar:
     movl $GUI_COLOR_LILAC, %ecx
     call gui_print_at
     movl $(KERNEL_LOAD_ADDRESS + gui_taskbar_version - _start), %esi
-    movl $888, %eax
+    movl $904, %eax
     movl $708, %edx
     movl $GUI_COLOR_PINK, %ecx
     call gui_print_at
@@ -3231,7 +3231,10 @@ gui_image_click:
     movl (KERNEL_LOAD_ADDRESS + wm_local_x - _start), %eax
     cmpl $24, %eax
     jb gui_click_complete
-    cmpl $336, %eax
+    /* Six 52-pixel tool buttons begin at local X=24 with a 60-pixel
+     * stride.  The final Rectangle button therefore ends at X=376; the
+     * former X=336 bound made most of that button inert. */
+    cmpl $376, %eax
     jb gui_image_click_tool
     cmpl $400, %eax
     jb gui_click_complete
@@ -5557,7 +5560,7 @@ gui_window_image_caption: .asciz "M.I.L.O PIXEL STUDIO"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.30.2"
+gui_overlay_version: .asciz "0.31"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -5585,7 +5588,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "F1 // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.30.2"
+gui_taskbar_version: .asciz "M.I.L.O V0.31"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -5622,7 +5625,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.30.2"
+gui_version_status: .asciz "KERNEL   0.31"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"

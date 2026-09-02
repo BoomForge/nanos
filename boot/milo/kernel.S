@@ -64,6 +64,11 @@
 #define ROUTE_SHOW 11
 #define ROUTE_TELL 12
 #define ROUTE_CLEAR 13
+#define ROUTE_STATUS 14
+#define ROUTE_CLOCK 15
+#define ROUTE_APPS 16
+#define ROUTE_SOUND 17
+#define ROUTE_BEEP 18
 #define GUARD_DELETE 1
 #define GUARD_RENAME 2
 #define GUARD_WRITE 3
@@ -95,6 +100,7 @@ _start:
     call print_prompt
     call initialize_mouse
     call render_shell
+    call sound_boot_cue
 
 keyboard_poll:
     call draw_mouse_cursor
@@ -1321,6 +1327,7 @@ editor_save:
     movb $0, (KERNEL_LOAD_ADDRESS + editor_dirty - _start)
     movb $1, (KERNEL_LOAD_ADDRESS + editor_save_status - _start)
     movb $0, (KERNEL_LOAD_ADDRESS + editor_close_armed - _start)
+    call sound_success_cue
     call render_editor
     jmp keyboard_poll
 editor_save_failed:
@@ -1449,24 +1456,100 @@ dispatch_command:
     call strings_equal
     testl %eax, %eax
     jnz show_find_usage
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_status - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_status
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_clock - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_clock
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_date - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_clock
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_apps - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_apps
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_writer - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz open_writer
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_sound - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_sound
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_beep - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz sound_test
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_cls - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz do_clear
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_ls - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_directory
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    movl $(KERNEL_LOAD_ADDRESS + command_ver - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz show_version
 
 test_milo_command:
     movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
     cmpb $'m', 0(%esi)
-    jne test_find_command
+    jne test_sound_command
     cmpb $'i', 1(%esi)
-    jne test_find_command
+    jne test_sound_command
     cmpb $'l', 2(%esi)
-    jne test_find_command
+    jne test_sound_command
     cmpb $'o', 3(%esi)
-    jne test_find_command
+    jne test_sound_command
     cmpb $' ', 4(%esi)
-    jne test_find_command
+    jne test_sound_command
     addl $5, %esi
     cmpb $0, (%esi)
     je show_milo_ready
     call milo_interact
     ret
+
+test_sound_command:
+    movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
+    cmpb $'s', 0(%esi)
+    jne test_find_command
+    cmpb $'o', 1(%esi)
+    jne test_find_command
+    cmpb $'u', 2(%esi)
+    jne test_find_command
+    cmpb $'n', 3(%esi)
+    jne test_find_command
+    cmpb $'d', 4(%esi)
+    jne test_find_command
+    cmpb $' ', 5(%esi)
+    jne test_find_command
+    addl $6, %esi
+    movl $(KERNEL_LOAD_ADDRESS + sound_on_word - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz sound_enable
+    movl $(KERNEL_LOAD_ADDRESS + sound_off_word - _start), %edi
+    call strings_equal
+    testl %eax, %eax
+    jnz sound_disable
+    movl $(KERNEL_LOAD_ADDRESS + sound_usage_message - _start), %esi
+    jmp show_message
 
 test_find_command:
     movl $(KERNEL_LOAD_ADDRESS + input_buffer - _start), %esi
@@ -1667,6 +1750,65 @@ show_copy_usage:
     jmp show_message
 show_find_usage:
     movl $(KERNEL_LOAD_ADDRESS + find_usage_message - _start), %esi
+    jmp show_message
+
+show_status:
+    movl $(KERNEL_LOAD_ADDRESS + status_header_message - _start), %esi
+    call print_string
+    movl $(KERNEL_LOAD_ADDRESS + version_message - _start), %esi
+    call print_string
+    call show_memory
+    call show_disk
+    call show_clock
+    jmp show_sound
+
+show_clock:
+    movl $(KERNEL_LOAD_ADDRESS + clock_message - _start), %esi
+    call print_string
+    movl $(KERNEL_LOAD_ADDRESS + rtc_display_text - _start), %esi
+    call print_string
+    movl $(KERNEL_LOAD_ADDRESS + newline - _start), %esi
+    jmp show_message
+
+show_apps:
+    movl $(KERNEL_LOAD_ADDRESS + apps_message - _start), %esi
+    jmp show_message
+
+open_writer:
+    call wm_open_editor
+    ret
+
+show_sound:
+    movl $(KERNEL_LOAD_ADDRESS + sound_status_message - _start), %esi
+    call print_string
+    cmpb $0, (KERNEL_LOAD_ADDRESS + sound_enabled - _start)
+    je show_sound_off
+    movl $(KERNEL_LOAD_ADDRESS + sound_on_message - _start), %esi
+    jmp show_message
+show_sound_off:
+    movl $(KERNEL_LOAD_ADDRESS + sound_off_message - _start), %esi
+    jmp show_message
+
+sound_enable:
+    movb $1, (KERNEL_LOAD_ADDRESS + sound_enabled - _start)
+    call sound_milo_cue
+    movl $(KERNEL_LOAD_ADDRESS + sound_enabled_message - _start), %esi
+    jmp show_message
+
+sound_disable:
+    movb $0, (KERNEL_LOAD_ADDRESS + sound_enabled - _start)
+    call speaker_off
+    movl $(KERNEL_LOAD_ADDRESS + sound_disabled_message - _start), %esi
+    jmp show_message
+
+sound_test:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + sound_enabled - _start)
+    je sound_test_muted
+    call sound_boot_cue
+    movl $(KERNEL_LOAD_ADDRESS + sound_test_message - _start), %esi
+    jmp show_message
+sound_test_muted:
+    movl $(KERNEL_LOAD_ADDRESS + sound_muted_message - _start), %esi
     jmp show_message
 
 do_clear:
@@ -1925,6 +2067,16 @@ route_static_action:
     je route_show_traits
     cmpl $ROUTE_CLEAR, %eax
     je route_clear_terminal
+    cmpl $ROUTE_STATUS, %eax
+    je route_show_status
+    cmpl $ROUTE_CLOCK, %eax
+    je route_show_clock
+    cmpl $ROUTE_APPS, %eax
+    je route_show_apps
+    cmpl $ROUTE_SOUND, %eax
+    je route_show_sound
+    cmpl $ROUTE_BEEP, %eax
+    je route_sound_test
     jmp route_conversation
 route_show_help:
     movl $(KERNEL_LOAD_ADDRESS + help_message - _start), %esi
@@ -1952,6 +2104,21 @@ route_show_traits:
     jmp route_success
 route_clear_terminal:
     call clear_terminal
+    jmp route_success
+route_show_status:
+    call show_status
+    jmp route_success
+route_show_clock:
+    call show_clock
+    jmp route_success
+route_show_apps:
+    call show_apps
+    jmp route_success
+route_show_sound:
+    call show_sound
+    jmp route_success
+route_sound_test:
+    call sound_test
     jmp route_success
 
 route_unclaimed:
@@ -2573,8 +2740,106 @@ milo_increment_trait:
 
 /* Learn structural speech habits from ESI and emit one deterministic reply. */
 milo_interact:
+    pushl %esi
     call milo_observe_input
-    jmp milo_choose_response
+    popl %esi
+    call milo_classify_social
+    testl %eax, %eax
+    jz milo_choose_response
+    pushl %eax
+    call milo_save_memory
+    popl %eax
+    cmpl $1, %eax
+    je milo_social_greeting
+    cmpl $2, %eax
+    je milo_social_thanks
+    cmpl $3, %eax
+    je milo_social_farewell
+    cmpl $4, %eax
+    je milo_social_identity
+    cmpl $5, %eax
+    je milo_social_wellbeing
+    movl $(KERNEL_LOAD_ADDRESS + milo_capability_message - _start), %esi
+    jmp milo_print_response
+milo_social_greeting:
+    movl $(KERNEL_LOAD_ADDRESS + milo_greeting_message - _start), %esi
+    jmp milo_print_response
+milo_social_thanks:
+    movl $(KERNEL_LOAD_ADDRESS + milo_thanks_message - _start), %esi
+    jmp milo_print_response
+milo_social_farewell:
+    movl $(KERNEL_LOAD_ADDRESS + milo_farewell_message - _start), %esi
+    jmp milo_print_response
+milo_social_identity:
+    movl $(KERNEL_LOAD_ADDRESS + milo_identity_message - _start), %esi
+    jmp milo_print_response
+milo_social_wellbeing:
+    movl $(KERNEL_LOAD_ADDRESS + milo_wellbeing_message - _start), %esi
+    jmp milo_print_response
+
+/* Classify conversational token patterns without retaining the sentence.
+ * Return: 1 greeting, 2 thanks, 3 farewell, 4 identity, 5 wellbeing,
+ * 6 capability, or zero for the existing trait-selected response pool. */
+milo_classify_social:
+    call build_routing_copy
+    movb $0, (KERNEL_LOAD_ADDRESS + milo_social_flags - _start)
+    movl $(KERNEL_LOAD_ADDRESS + routing_buffer - _start), %esi
+milo_social_token:
+    cmpb $0, (%esi)
+    je milo_social_choose
+    movl $(KERNEL_LOAD_ADDRESS + milo_social_table - _start), %ebx
+milo_social_word:
+    movl (%ebx), %edi
+    testl %edi, %edi
+    jz milo_social_advance
+    call route_word_match
+    testl %eax, %eax
+    jz milo_social_next_word
+    movb 4(%ebx), %al
+    orb %al, (KERNEL_LOAD_ADDRESS + milo_social_flags - _start)
+milo_social_next_word:
+    addl $5, %ebx
+    jmp milo_social_word
+milo_social_advance:
+    call route_advance_token
+    jmp milo_social_token
+milo_social_choose:
+    movzbl (KERNEL_LOAD_ADDRESS + milo_social_flags - _start), %eax
+    testb $2, %al
+    jnz milo_social_return_thanks
+    testb $4, %al
+    jnz milo_social_return_farewell
+    testb $8, %al
+    jnz milo_social_return_identity
+    testb $16, %al
+    jnz milo_social_return_wellbeing
+    testb $32, %al
+    jz milo_social_test_greeting
+    testb $0xc0, %al
+    jnz milo_social_return_capability
+milo_social_test_greeting:
+    testb $1, %al
+    jnz milo_social_return_greeting
+    xorl %eax, %eax
+    ret
+milo_social_return_greeting:
+    movl $1, %eax
+    ret
+milo_social_return_thanks:
+    movl $2, %eax
+    ret
+milo_social_return_farewell:
+    movl $3, %eax
+    ret
+milo_social_return_identity:
+    movl $4, %eax
+    ret
+milo_social_return_wellbeing:
+    movl $5, %eax
+    ret
+milo_social_return_capability:
+    movl $6, %eax
+    ret
 
 /* Observe structural signals only; ESI text is inspected but never retained. */
 milo_observe_input:
@@ -2808,11 +3073,13 @@ milo_neutral_one:
 milo_neutral_two:
     movl $(KERNEL_LOAD_ADDRESS + milo_neutral_two_message - _start), %esi
 milo_print_response:
+    call sound_milo_cue
     call print_string
     ret
 
 show_milo_ready:
     movl $(KERNEL_LOAD_ADDRESS + milo_ready_message - _start), %esi
+    call sound_milo_cue
     call print_string
     ret
 
@@ -2875,6 +3142,75 @@ traits_grammar_complete:
     movl $(KERNEL_LOAD_ADDRESS + traits_footer_message - _start), %esi
     call print_string
     ret
+
+/* Minimal PC-speaker sound. PIT channel 2 produces the tone while the
+ * existing BIOS-configured channel 0 provides a short, bounded duration.
+ * EAX=tone divisor, ECX=channel-0 ticks (1193182 per second). */
+speaker_tone:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + sound_enabled - _start)
+    je speaker_tone_complete
+    pushal
+    movl %eax, %ebx
+    movl %ecx, %esi
+    movb $0xb6, %al
+    outb %al, $0x43
+    movl %ebx, %eax
+    outb %al, $0x42
+    movb %ah, %al
+    outb %al, $0x42
+    inb $0x61, %al
+    orb $3, %al
+    outb %al, $0x61
+    call speaker_read_pit0
+    movl %eax, %ebx
+speaker_tone_wait:
+    call speaker_read_pit0
+    movl %ebx, %edx
+    subl %eax, %edx
+    andl $0xffff, %edx
+    cmpl %esi, %edx
+    jb speaker_tone_wait
+    call speaker_off
+    popal
+speaker_tone_complete:
+    ret
+
+speaker_read_pit0:
+    xorl %eax, %eax
+    outb %al, $0x43
+    inb $0x40, %al
+    movb %al, %dl
+    inb $0x40, %al
+    movzbl %al, %eax
+    shll $8, %eax
+    movb %dl, %al
+    ret
+
+speaker_off:
+    pushl %eax
+    inb $0x61, %al
+    andb $0xfc, %al
+    outb %al, $0x61
+    popl %eax
+    ret
+
+sound_boot_cue:
+    movl $1522, %eax
+    movl $30000, %ecx
+    call speaker_tone
+    movl $1139, %eax
+    movl $42000, %ecx
+    jmp speaker_tone
+
+sound_milo_cue:
+    movl $1356, %eax
+    movl $24000, %ecx
+    jmp speaker_tone
+
+sound_success_cue:
+    movl $1014, %eax
+    movl $22000, %ecx
+    jmp speaker_tone
 
 /* Split "OLD NEW" in place; ESI remains OLD and second_name points to NEW. */
 split_two_names:
@@ -4471,22 +4807,29 @@ command_disk: .asciz "disk"
 command_traits: .asciz "traits"
 command_milo: .asciz "milo"
 command_find: .asciz "find"
+command_status: .asciz "status"
+command_clock: .asciz "clock"
+command_date: .asciz "date"
+command_apps: .asciz "apps"
+command_writer: .asciz "writer"
+command_sound: .asciz "sound"
+command_beep: .asciz "beep"
+command_cls: .asciz "cls"
+command_ls: .asciz "ls"
+command_ver: .asciz "ver"
+sound_on_word: .asciz "on"
+sound_off_word: .asciz "off"
 help_message:
-    .ascii "COMMANDS:\n"
-    .ascii " help  about  clear  memory\n"
-    .ascii " version  echo X  dir  disk\n"
-    .ascii " milo TEXT  traits\n"
-    .ascii " type FILE.TXT\n"
-    .ascii " find FILE.TXT text\n"
-    .ascii " write FILE.TXT text\n"
-    .ascii " edit FILE.TXT\n"
-    .ascii " del FILE.TXT\n"
-    .ascii " ren OLD.TXT NEW.TXT\n"
-    .ascii " copy OLD.TXT NEW.TXT\n"
-    .ascii " UP/DOWN BROWSE 30 COMMANDS\n"
-    .asciz " NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
+    .ascii "CORE: help status clock apps clear(cls)\n"
+    .ascii "      about version(ver) memory traits\n"
+    .ascii "FILES: dir(ls) disk type/find/write/edit\n"
+    .ascii "       del ren copy // USE 8.3 NAMES\n"
+    .ascii "WRITE: writer // OR edit FILE.TXT\n"
+    .ascii "MILO: milo TEXT sound [on|off] beep\n"
+    .ascii "UP/DOWN: 30-COMMAND HISTORY // F1: APPS\n"
+    .asciz "NATURAL SAFE REQUESTS + TYPO ROUTING ONLINE\n"
 about_message: .asciz "M.I.L.O // TINY, OFFLINE, AND AWAKE.\n"
-version_message: .asciz "M.I.L.O VERSION 0.30.2\n"
+version_message: .asciz "M.I.L.O VERSION 0.31\n"
 unknown_message: .asciz "I DON'T KNOW THAT ONE. TRY HELP.\n"
 route_ambiguous_message: .asciz "M.I.L.O // THAT SPELLING MATCHES TWO ACTIONS. BE MORE SPECIFIC.\n"
 guarded_delete_message: .asciz "M.I.L.O // NOTHING WAS DELETED. USE: del FILE.TXT\n"
@@ -4525,6 +4868,17 @@ find_result_line: .asciz "FOUND: LINE "
 find_result_column: .asciz " COLUMN "
 find_not_found_message: .asciz "TEXT NOT FOUND.\n"
 find_large_message: .asciz "FIND LIMIT IS 8191 BYTES.\n"
+status_header_message: .asciz "M.I.L.O // LOCAL SYSTEM STATUS\n"
+clock_message: .asciz "CLOCK: "
+apps_message: .asciz "APPS: F1 OPENS SYSTEM, FILEHOUND, TRAITS, TERMINAL, WRITER, PIXEL STUDIO.\n"
+sound_status_message: .asciz "SOUND: "
+sound_on_message: .asciz "ON // PC SPEAKER\n"
+sound_off_message: .asciz "OFF\n"
+sound_enabled_message: .asciz "SOUND ON // PC SPEAKER READY.\n"
+sound_disabled_message: .asciz "SOUND OFF.\n"
+sound_test_message: .asciz "SOUND TEST SENT TO PC SPEAKER.\n"
+sound_muted_message: .asciz "SOUND IS OFF. USE: sound on\n"
+sound_usage_message: .asciz "USAGE: sound on | sound off\n"
 deleted_message: .asciz "FILE DELETED.\n"
 renamed_message: .asciz "FILE RENAMED.\n"
 file_exists_message: .asciz "DESTINATION FILE ALREADY EXISTS.\n"
@@ -4558,9 +4912,24 @@ milo_neutral_zero_message: .asciz "M.I.L.O // I AM LISTENING. THE PATTERN HAS BE
 milo_neutral_one_message: .asciz "M.I.L.O // LOGGED AS RHYTHM, NOT AS YOUR WORDS.\n"
 milo_neutral_two_message: .asciz "M.I.L.O // UNDERSTOOD ENOUGH TO STAY CURIOUS.\n"
 milo_neutral_three_message: .asciz "M.I.L.O // MY TINY BRAIN HAS SOMETHING TO CHEW ON.\n"
+milo_greeting_message: .asciz "M.I.L.O // HELLO. LOCAL, AWAKE, AND LISTENING.\n"
+milo_thanks_message: .asciz "M.I.L.O // YOU ARE WELCOME. I WILL FILE THAT UNDER GOOD MACHINERY.\n"
+milo_farewell_message: .asciz "M.I.L.O // GOODBYE. I WILL KEEP THE LOCAL LIGHT ON.\n"
+milo_identity_message: .asciz "M.I.L.O // I AM YOUR TINY OFFLINE SYSTEM, NOT A CLOUD AND NOT AN LLM.\n"
+milo_wellbeing_message: .asciz "M.I.L.O // ALL LOCAL SYSTEMS NOMINAL. CURIOSITY REMAINS ACTIVE.\n"
+milo_capability_message: .asciz "M.I.L.O // I ROUTE COMMANDS, MANAGE FILES, HELP YOU WRITE, AND LEARN STRUCTURE.\n"
 
 /* Reusable component grammar. Table bytes are abstract intent identifiers. */
 route_word_commands: .asciz "commands"
+route_word_status: .asciz "status"
+route_word_health: .asciz "health"
+route_word_clock: .asciz "clock"
+route_word_date: .asciz "date"
+route_word_apps: .asciz "apps"
+route_word_applications: .asciz "applications"
+route_word_sound: .asciz "sound"
+route_word_audio: .asciz "audio"
+route_word_beep: .asciz "beep"
 route_word_ram: .asciz "ram"
 route_word_directory: .asciz "directory"
 route_word_files: .asciz "files"
@@ -4626,11 +4995,26 @@ route_word_document: .asciz "document"
 route_word_in: .asciz "in"
 route_word_inside: .asciz "inside"
 route_word_within: .asciz "within"
+route_word_thank: .asciz "thank"
+route_word_thanks: .asciz "thanks"
+route_word_bye: .asciz "bye"
+route_word_goodbye: .asciz "goodbye"
+route_word_who: .asciz "who"
+route_word_name: .asciz "name"
 
 .align 4
 route_action_table:
     .long KERNEL_LOAD_ADDRESS + command_help - _start; .byte ROUTE_HELP
     .long KERNEL_LOAD_ADDRESS + route_word_commands - _start; .byte ROUTE_HELP
+    .long KERNEL_LOAD_ADDRESS + route_word_status - _start; .byte ROUTE_STATUS
+    .long KERNEL_LOAD_ADDRESS + route_word_health - _start; .byte ROUTE_STATUS
+    .long KERNEL_LOAD_ADDRESS + route_word_clock - _start; .byte ROUTE_CLOCK
+    .long KERNEL_LOAD_ADDRESS + route_word_date - _start; .byte ROUTE_CLOCK
+    .long KERNEL_LOAD_ADDRESS + route_word_apps - _start; .byte ROUTE_APPS
+    .long KERNEL_LOAD_ADDRESS + route_word_applications - _start; .byte ROUTE_APPS
+    .long KERNEL_LOAD_ADDRESS + route_word_sound - _start; .byte ROUTE_SOUND
+    .long KERNEL_LOAD_ADDRESS + route_word_audio - _start; .byte ROUTE_SOUND
+    .long KERNEL_LOAD_ADDRESS + route_word_beep - _start; .byte ROUTE_BEEP
     .long KERNEL_LOAD_ADDRESS + command_about - _start; .byte ROUTE_ABOUT
     .long KERNEL_LOAD_ADDRESS + command_memory - _start; .byte ROUTE_MEMORY
     .long KERNEL_LOAD_ADDRESS + route_word_ram - _start; .byte ROUTE_MEMORY
@@ -4705,6 +5089,24 @@ route_filler_table:
     .long KERNEL_LOAD_ADDRESS + route_word_have - _start; .byte 0
     .long KERNEL_LOAD_ADDRESS + route_word_system - _start; .byte 0
     .long KERNEL_LOAD_ADDRESS + route_word_for - _start; .byte 0
+    .long 0
+
+/* Token-category map used only after operational routing declines the input.
+ * These bits are transient structural classes; no input text is persisted. */
+milo_social_table:
+    .long KERNEL_LOAD_ADDRESS + route_word_hello - _start; .byte 1
+    .long KERNEL_LOAD_ADDRESS + route_word_hey - _start; .byte 1
+    .long KERNEL_LOAD_ADDRESS + route_word_hi - _start; .byte 1
+    .long KERNEL_LOAD_ADDRESS + route_word_thank - _start; .byte 2
+    .long KERNEL_LOAD_ADDRESS + route_word_thanks - _start; .byte 2
+    .long KERNEL_LOAD_ADDRESS + route_word_bye - _start; .byte 4
+    .long KERNEL_LOAD_ADDRESS + route_word_goodbye - _start; .byte 4
+    .long KERNEL_LOAD_ADDRESS + route_word_who - _start; .byte 8
+    .long KERNEL_LOAD_ADDRESS + route_word_name - _start; .byte 8
+    .long KERNEL_LOAD_ADDRESS + route_word_how - _start; .byte 16
+    .long KERNEL_LOAD_ADDRESS + route_word_what - _start; .byte 32
+    .long KERNEL_LOAD_ADDRESS + route_word_can - _start; .byte 64
+    .long KERNEL_LOAD_ADDRESS + route_word_do - _start; .byte 128
     .long 0
 
 .align 4
@@ -4793,7 +5195,9 @@ editor_close_armed: .byte 0
 write_silent: .byte 0
 milo_signal_flags: .byte 0
 milo_response_choice: .byte 0
+milo_social_flags: .byte 0
 milo_legacy_profile: .byte 0
+sound_enabled: .byte 1
 route_corrected: .byte 0
 route_courtesy: .byte 0
 route_has_object: .byte 0

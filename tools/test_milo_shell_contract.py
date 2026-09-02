@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.30.2 desktop and Pixel Studio."""
+"""Static and binary checks for the V0.31 text-first desktop and Pixel Studio."""
 
 from pathlib import Path
 import re
@@ -90,13 +90,13 @@ def main():
         b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.30.2",
+        b"M.I.L.O V0.31",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.30.2",
+        b"M.I.L.O VERSION 0.31",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
@@ -167,11 +167,11 @@ def main():
         "jmp wm_open_selected",
         "call wm_render_taskbar",
         "rtc_display_text: .ascii \"00/00/2000  00:00\\0\"",
-        "movl $888, %eax\n    movl $708, %edx",
+        "movl $904, %eax\n    movl $708, %edx",
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.30.2") * 8 == 1008
+    assert 904 + len("M.I.L.O V0.31") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Six independent native application windows retain focus, stacking,
@@ -473,6 +473,22 @@ def main():
     assert "movl $WM_BACKBUFFER_ADDRESS, BOOT_FRAMEBUFFER(%ebp)" in pixel_present
     assert "call image_present_source_block" in pixel_present
     assert "call render_shell" not in pixel_present
+    image_click = shell_source[
+        shell_source.index("gui_image_click:"):
+        shell_source.index("gui_image_click_palette:")
+    ]
+    assert "cmpl $376, %eax\n    jb gui_image_click_tool" in image_click
+    assert "cmpl $336, %eax\n    jb gui_image_click_tool" not in image_click
+    rectangle = shell_source[
+        shell_source.index("image_draw_rectangle:"):
+        shell_source.index("gui_action_copy:")
+    ]
+    assert rectangle.count("call image_prepare_line") == 4
+    assert rectangle.count("call image_draw_line") == 4
+    for endpoint in (
+        "image_line_y1", "image_line_y0", "image_line_x1", "image_line_x0"
+    ):
+        assert endpoint in rectangle
     for fragment in (
         "load_entry_to_image_buffer:",
         "movl $IMAGE_BUFFER_ADDRESS, %edi",
@@ -484,6 +500,39 @@ def main():
         "call image_handle_character",
     ):
         require(kernel_source, fragment)
+
+    # V0.31 keeps Pixel Studio as a bounded supporting app, fixes the complete
+    # Rectangle control hitbox, and spends the active feature budget on the
+    # text-first shell, deterministic social patterns, and native sound.
+    for fragment in (
+        "call render_shell\n    call sound_boot_cue",
+        "speaker_tone:",
+        "outb %al, $0x43",
+        "outb %al, $0x42",
+        "inb $0x61, %al",
+        "sound_enabled: .byte 1",
+        "command_status: .asciz \"status\"",
+        "command_clock: .asciz \"clock\"",
+        "command_apps: .asciz \"apps\"",
+        "command_writer: .asciz \"writer\"",
+        "command_sound: .asciz \"sound\"",
+        "command_beep: .asciz \"beep\"",
+        "test_sound_command:",
+        "call sound_success_cue\n    call render_editor",
+        "milo_classify_social:",
+        "milo_social_table:",
+        "milo_social_flags: .byte 0",
+        "M.I.L.O // I AM YOUR TINY OFFLINE SYSTEM, NOT A CLOUD AND NOT AN LLM.",
+    ):
+        require(kernel_source, fragment)
+    for marker in (
+        b"CORE: help status clock apps clear(cls)",
+        b"MILO: milo TEXT sound [on|off] beep",
+        b"SOUND TEST SENT TO PC SPEAKER.",
+        b"LOCAL, AWAKE, AND LISTENING",
+        b"NOT A CLOUD AND NOT AN LLM",
+    ):
+        assert marker in kernel, marker
 
     # The Conky-like root overlay reports real native state. Storage is counted
     # from FAT12, activity is sampled from real input events, applications use
@@ -633,8 +682,8 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.30.2 desktop contract: %d-byte kernel, no-blank pointer, "
-        "keyboard windows, Writer, FileHound, native M16 Pixel Studio OK"
+        "M.I.L.O V0.31 desktop contract: %d-byte kernel, no-blank pointer, "
+        "text-first console, native sound, Writer, FileHound, Pixel Studio OK"
         % len(kernel)
     )
 
