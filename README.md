@@ -11,7 +11,7 @@ improvements; it is not the M.I.L.O runtime.
 
 ## Current release
 
-V0.30.1 provides:
+V0.30.2 provides:
 
 - silent normal loading followed by a native ASCII M.I.L.O splash held for at
   least three seconds;
@@ -34,7 +34,8 @@ V0.30.1 provides:
   images, with pencil/eraser drag, colour picker, bounded flood fill, line and
   rectangle tools, palette selection, zoom, a pixel caret, one full-image undo,
   selectable 32x32/64x48/96x64/128x96 New canvases, verified FAT12 Save/Save As,
-  automatic `.M16`, guarded dirty close, and corrected byte-accurate edit gates;
+  automatic `.M16`, guarded dirty close, corrected byte-accurate edit gates,
+  direct dirty-pixel presentation, and interpolated fast mouse strokes;
 - a no-blank fast-pointer handoff, corrected mouse-selection anchoring,
   keyboard FileHound browsing, `Alt+F9` minimize, `Alt+F4` guarded close, and a
   30-entry command history; and
@@ -60,13 +61,13 @@ make verify-milo-boot
 The build produces:
 
 ```text
-build/M.I.L.O-floppy-V0.30.1.img
+build/M.I.L.O-floppy-V0.30.2.img
 ```
 
 ## Run on Windows
 
 ```powershell
-$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.1.img"
+$img = "$env:USERPROFILE\Downloads\M.I.L.O-floppy-V0.30.2.img"
 & "C:\Program Files\qemu\qemu-system-i386.exe" `
     -m 128M `
     -rtc base=localtime `

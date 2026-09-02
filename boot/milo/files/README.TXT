@@ -1,7 +1,7 @@
 M.I.L.O FAT12 STORAGE ONLINE
 
 This text is stored in a real FAT12 file on the boot floppy.
-V0.30.1 can reach the complete 1.44 MB volume, beyond the fast boot cache.
+V0.30.2 can reach the complete 1.44 MB volume, beyond the fast boot cache.
 Normal boot stays visually quiet until the M.I.L.O splash appears and remains
 visible for at least three seconds and through initialization. The native root
 desktop starts with a right-side live
@@ -23,6 +23,8 @@ arrows and Enter or click a size; Escape cancels. Save and Save As write through
 verified FAT12 and add .M16 automatically when omitted. P/E/I/F/L/R select
 tools; arrows move; Enter draws; [ ] changes colour; Ctrl+Z/S/N undo/save/new.
 External or damaged image files receive a clear error.
+V0.30.2 draws continuous mouse strokes between input samples and updates only
+changed pixel blocks while dragging, avoiding a whole-desktop redraw per pixel.
 Use dir to list files and type readme.txt to read this document.
 Use find FILE.TXT text to locate writing by line and column.
 You can also say: please show me the files, read README.TXT,
@@ -30,7 +32,7 @@ or find machinery in README.TXT. Common action typos are tolerated.
 Just talk to M.I.L.O, or use milo TEXT. Use traits to inspect learning.
 
 The taskbar lists only minimized applications; click one to restore it. Its
-right edge shows V0.30.1 above the hardware RTC date and 24-hour local time.
+right edge shows V0.30.2 above the hardware RTC date and 24-hour local time.
 The overlay reports real event activity on a 0--120+ events/second graph,
 application
 states, RAM, FAT12 capacity, files, total input events, video, network, and
@@ -43,7 +45,7 @@ The windows can overlap, move, resize from the bottom-right grip, minimize,
 maximize, close, and reopen from the root menu. Application content remains
 clipped and adapts to the available client area. Terminal text survives
 movement, resizing, covering, minimizing, and restore.
-V0.30.1 keeps client text readable while windows are resized, presents Writer
+V0.30.2 keeps client text readable while windows are resized, presents Writer
 typing from a RAM buffer, and builds complete desktop refreshes in a backbuffer
 so the desktop and lower windows do not flash through between layers.
 The Fluxbox/Conky/FileHound-like workflow is entirely native M.I.L.O code: no

@@ -195,6 +195,12 @@ tool bytes made valid canvases appear unavailable. **V0.30.1** uses byte-accurat
 status gates for pointer drawing, keyboard movement, tool dispatch, and Save.
 It also replaces the fixed New operation with a modal, mouse-and-keyboard canvas
 picker offering 32x32, 64x48, 96x64, and the full 128x96 M16 ceiling.
+Runtime drawing then proved correct but unacceptably slow because every pointer
+sample recomposed and copied the complete desktop. **V0.30.2** keeps full-frame
+composition for desktop transitions, but gives live Pencil/Eraser strokes a
+bounded dirty-pixel path that updates the visible and backing frames together.
+Integer line interpolation fills pixels between PS/2 samples, so fast strokes
+remain continuous and aligned with the pointer rather than becoming sparse.
 
 - Stage 1 occupies the BIOS boot sector and loads Stage 2.
 - Stage 2 detects memory, selects a 1024x768 32-bit VBE framebuffer, caches the
@@ -202,8 +208,8 @@ picker offering 32x32, 64x48, 96x64, and the full 128x96 M16 ceiling.
   sector services to the kernel.
 - The assembly kernel owns the terminal, editor, deterministic router, pattern
   memory, FAT12 operations, keyboard input, and framebuffer drawing.
-- The V0.30.1 candidate kernel is 42,527 bytes; 48 KiB is reserved for controlled
-  growth, leaving 6,625 bytes in the current kernel region.
+- The V0.30.2 candidate kernel is 43,131 bytes; 48 KiB is reserved for controlled
+  growth, leaving 6,021 bytes in the current kernel region.
 - Whole-desktop composition uses a fixed 3 MiB backbuffer from physical 1 MiB
   through 4 MiB; the intended machine and QEMU profile provide at least 5 MiB.
 - The FAT12 data area contains 2,734 accessible clusters. Far clusters are read
@@ -439,6 +445,15 @@ contract rather than compensating with per-screen coordinate offsets.
 - Keep the picker fully operable by arrows/Enter/Escape and by direct clicks,
   with no heap or unbounded allocation.
 
+### V0.30.2 — responsive continuous drawing
+
+- Remove whole-desktop composition and 3 MiB frame copies from continuous
+  Pencil/Eraser movement.
+- Present only the Pixel Studio window at stroke boundaries and only changed
+  scaled pixel blocks during movement, updating both framebuffer copies.
+- Interpolate source pixels between pointer samples so quick motion produces a
+  continuous, accurate stroke rather than disconnected points.
+
 ### V0.31 — image interchange, deterministic M.I.L.O, and terminal expansion
 
 - Add uncompressed BMP read/write first because it requires little codec code
@@ -551,3 +566,4 @@ journal records intent and rationale.
 | `combine V0.31 image and deterministic milestones` | Merged image interchange/Mavica import with deeper deterministic M.I.L.O and Terminal expansion as V0.31, then renumbered in-system development to V0.32 and sound/state work to V0.33. | Deliver the post-editor image and intelligence work as one coherent release using the same file, application, command, and error paths. |
 | `add V0.30 native Pixel Studio` | Replaced the read-only M16 viewer with a keyboard-complete native pixel editor providing Pencil, Eraser, Picker, bounded Fill, Line, Rectangle, palette and zoom controls, a visible pixel caret, one full-image undo, fixed-size New, verified Save/Save As with automatic `.M16`, and dirty-close protection. | Make low-resolution image work genuinely useful while editing the compact packed format directly, retaining strict fixed-memory limits, and reusing the already verified FAT12 persistence path. |
 | `fix V0.30.1 drawing gates and canvas creation` | Corrected four one-byte Pixel Studio state checks that had accidentally included adjacent state, then added a modal keyboard-and-mouse New Canvas picker for 32x32, 64x48, 96x64, and 128x96 M16 images. | Runtime testing showed every drawing tool was blocked despite a valid image, while useful image work needed deliberate canvas sizing rather than a single hard-coded shape. |
+| `optimize V0.30.2 continuous pixel drawing` | Replaced per-sample whole-desktop composition with direct dirty-pixel presentation in the visible and backing frames, limited stroke-boundary refreshes to Pixel Studio, and interpolated Pencil/Eraser paths between PS/2 samples. | Runtime testing confirmed correctness but exposed extreme input latency and sparse cursor tracking; continuous drawing must be responsive before image interchange work begins. |

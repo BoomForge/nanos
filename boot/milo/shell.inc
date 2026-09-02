@@ -102,15 +102,22 @@ wm_present_composition:
     popal
     ret
 
-/* Present only the completed Writer rectangle after a focused repaint. The
- * six-pixel margin includes its shadow and resize grip. */
+/* Present only one completed application rectangle after a focused repaint.
+ * The six-pixel margin includes its shadow and resize grip. */
 wm_present_editor_region:
+    movl $WM_EDITOR, %eax
+    jmp wm_present_window_region
+wm_present_image_region:
+    movl $WM_IMAGE, %eax
+wm_present_window_region:
     pushal
+    movl %eax, (KERNEL_LOAD_ADDRESS + wm_present_window - _start)
     movl (KERNEL_LOAD_ADDRESS + wm_physical_framebuffer - _start), %edi
     movl %edi, BOOT_FRAMEBUFFER(%ebp)
-    movl (KERNEL_LOAD_ADDRESS + wm_x + WM_EDITOR * 4 - _start), %eax
-    movl (KERNEL_LOAD_ADDRESS + wm_y + WM_EDITOR * 4 - _start), %ebx
-    movl (KERNEL_LOAD_ADDRESS + wm_w + WM_EDITOR * 4 - _start), %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_present_window - _start), %edx
+    movl (KERNEL_LOAD_ADDRESS + wm_x - _start)(,%edx,4), %eax
+    movl (KERNEL_LOAD_ADDRESS + wm_y - _start)(,%edx,4), %ebx
+    movl (KERNEL_LOAD_ADDRESS + wm_w - _start)(,%edx,4), %ecx
     addl $6, %ecx
     movl $1024, %edx
     subl %eax, %edx
@@ -119,7 +126,8 @@ wm_present_editor_region:
     movl %edx, %ecx
 wm_present_editor_width_ready:
     movl %ecx, (KERNEL_LOAD_ADDRESS + wm_present_width - _start)
-    movl (KERNEL_LOAD_ADDRESS + wm_h + WM_EDITOR * 4 - _start), %ecx
+    movl (KERNEL_LOAD_ADDRESS + wm_present_window - _start), %edx
+    movl (KERNEL_LOAD_ADDRESS + wm_h - _start)(,%edx,4), %ecx
     addl $6, %ecx
     movl $768, %edx
     subl %ebx, %edx
@@ -2242,6 +2250,8 @@ gui_image_row_advance:
     incl (KERNEL_LOAD_ADDRESS + image_render_row - _start)
     jmp gui_image_row_next
 gui_image_pixels_complete:
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
+    jne gui_image_caret_complete
     /* Keyboard caret: an outside outline never replaces the underlying pixel. */
     movl (KERNEL_LOAD_ADDRESS + image_cursor_x - _start), %eax
     imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %eax
@@ -2284,6 +2294,7 @@ gui_image_pixels_complete:
     addl $4, %edx
     movl $GUI_COLOR_LILAC, %esi
     call gui_fill_rectangle
+gui_image_caret_complete:
     movl $(KERNEL_LOAD_ADDRESS + gui_image_palette_label - _start), %esi
     movl (KERNEL_LOAD_ADDRESS + image_palette_x - _start), %eax
     movl $200, %edx
@@ -3281,6 +3292,15 @@ gui_image_click_canvas:
     call image_pointer_from_mouse
     testl %eax, %eax
     jz gui_click_complete
+    movzbl (KERNEL_LOAD_ADDRESS + image_tool - _start), %eax
+    cmpl $IMAGE_TOOL_ERASER, %eax
+    ja gui_image_click_apply
+    movb $1, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_stroke_last_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_stroke_last_y - _start)
+gui_image_click_apply:
     call image_apply_tool
     ret
 
@@ -3647,7 +3667,7 @@ gui_image_mouse_drag:
     call image_pointer_from_mouse
     testl %eax, %eax
     jz wm_drag_complete
-    call image_paint_current_pixel
+    call image_paint_stroke_to_cursor
     ret
 
 gui_editor_mouse_drag:
@@ -3747,7 +3767,7 @@ wm_release_complete:
 
 gui_image_mouse_release:
     movb $0, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
-    call render_shell
+    call render_image
     ret
 
 gui_editor_mouse_release:
@@ -4487,7 +4507,6 @@ image_apply_tool:
     movzbl (KERNEL_LOAD_ADDRESS + image_tool - _start), %eax
     cmpl $IMAGE_TOOL_FILL, %eax
     je image_apply_fill
-    movb $1, (KERNEL_LOAD_ADDRESS + image_mouse_painting - _start)
     call image_paint_current_pixel
     ret
 image_apply_fill:
@@ -4545,7 +4564,119 @@ image_paint_colour_ready:
     call image_cursor_index
     call image_set_pixel
     call image_mark_changed
-    call render_shell
+    call render_image
+    ret
+
+/* Continue a mouse pencil/eraser stroke between packet samples. Bresenham
+ * interpolation prevents gaps when PS/2 movement advances several source
+ * pixels at once; each changed block is presented directly without rebuilding
+ * and copying the entire desktop. */
+image_paint_stroke_to_cursor:
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_x - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + image_stroke_last_x - _start), %eax
+    jne image_stroke_prepare
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_y - _start), %eax
+    cmpl (KERNEL_LOAD_ADDRESS + image_stroke_last_y - _start), %eax
+    je image_stroke_complete
+image_stroke_prepare:
+    movl (KERNEL_LOAD_ADDRESS + image_stroke_last_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_line_x0 - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_stroke_last_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_line_y0 - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_line_x1 - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_line_y1 - _start)
+    movzbl (KERNEL_LOAD_ADDRESS + image_colour - _start), %eax
+    cmpb $IMAGE_TOOL_ERASER, (KERNEL_LOAD_ADDRESS + image_tool - _start)
+    jne image_stroke_colour_ready
+    xorl %eax, %eax
+image_stroke_colour_ready:
+    movb %al, (KERNEL_LOAD_ADDRESS + image_stroke_colour - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + image_line_present - _start)
+    call image_draw_line
+    movb $0, (KERNEL_LOAD_ADDRESS + image_line_present - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_x - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_stroke_last_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_cursor_y - _start), %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_stroke_last_y - _start)
+    call image_mark_changed
+image_stroke_complete:
+    ret
+
+/* Repaint one scaled source pixel in both the visible framebuffer and the
+ * compositor backing frame. EAX=x, EDX=y. The view clip keeps zoomed pixels
+ * out of the palette and surrounding window chrome. */
+image_present_source_pixel:
+    pushal
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_present_source_x - _start)
+    movl %edx, (KERNEL_LOAD_ADDRESS + image_present_source_y - _start)
+    imull (KERNEL_LOAD_ADDRESS + image_width - _start), %edx
+    addl %edx, %eax
+    call image_get_pixel
+    movl (KERNEL_LOAD_ADDRESS + image_palette_colors - _start)(,%eax,4), %esi
+    movl %esi, (KERNEL_LOAD_ADDRESS + image_present_colour - _start)
+
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_x - _start)
+    movl $0, (KERNEL_LOAD_ADDRESS + gui_draw_offset_y - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_x + WM_IMAGE * 4 - _start), %eax
+    addl $16, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_left - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_y + WM_IMAGE * 4 - _start), %eax
+    addl $152, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_top - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_x + WM_IMAGE * 4 - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_w + WM_IMAGE * 4 - _start), %eax
+    subl $160, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_right - _start)
+    movl (KERNEL_LOAD_ADDRESS + wm_y + WM_IMAGE * 4 - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_h + WM_IMAGE * 4 - _start), %eax
+    subl $64, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + gui_clip_bottom - _start)
+    movb $1, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + image_present_source_x - _start), %eax
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + image_origin_x - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_x + WM_IMAGE * 4 - _start), %eax
+    subl $WM_REFERENCE_X, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_present_screen_x - _start)
+    movl (KERNEL_LOAD_ADDRESS + image_present_source_y - _start), %eax
+    imull (KERNEL_LOAD_ADDRESS + image_scale - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + image_origin_y - _start), %eax
+    addl (KERNEL_LOAD_ADDRESS + wm_y + WM_IMAGE * 4 - _start), %eax
+    subl $WM_REFERENCE_Y, %eax
+    movl %eax, (KERNEL_LOAD_ADDRESS + image_present_screen_y - _start)
+
+    movl (KERNEL_LOAD_ADDRESS + wm_physical_framebuffer - _start), %eax
+    movl %eax, BOOT_FRAMEBUFFER(%ebp)
+    call image_present_source_block
+    movl $WM_BACKBUFFER_ADDRESS, BOOT_FRAMEBUFFER(%ebp)
+    call image_present_source_block
+    movl (KERNEL_LOAD_ADDRESS + wm_physical_framebuffer - _start), %eax
+    movl %eax, BOOT_FRAMEBUFFER(%ebp)
+    movb $0, (KERNEL_LOAD_ADDRESS + gui_clip_enabled - _start)
+    popal
+    ret
+
+image_present_source_block:
+    movl (KERNEL_LOAD_ADDRESS + image_present_screen_x - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + image_present_screen_y - _start), %ebx
+    movl (KERNEL_LOAD_ADDRESS + image_scale - _start), %ecx
+    movl %ecx, %edx
+    movl (KERNEL_LOAD_ADDRESS + image_present_colour - _start), %esi
+    call gui_fill_rectangle
+    ret
+
+/* Compose only Pixel Studio for discrete edits and stroke endpoints. During a
+ * live mouse stroke the caret is suppressed, then restored on release. */
+render_image:
+    call gui_save_terminal_state
+    call wm_begin_composition
+    movl $WM_IMAGE, %eax
+    call wm_render_window
+    call gui_restore_terminal_state
+    call wm_present_image_region
     ret
 
 image_mark_changed:
@@ -4784,8 +4915,20 @@ image_line_dy_abs_ready:
 image_line_next:
     movl (KERNEL_LOAD_ADDRESS + image_line_x0 - _start), %eax
     movl (KERNEL_LOAD_ADDRESS + image_line_y0 - _start), %edx
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_line_present - _start)
+    jne image_line_stroke_colour
     movzbl (KERNEL_LOAD_ADDRESS + image_colour - _start), %ebx
+    jmp image_line_colour_ready
+image_line_stroke_colour:
+    movzbl (KERNEL_LOAD_ADDRESS + image_stroke_colour - _start), %ebx
+image_line_colour_ready:
     call image_set_xy
+    cmpb $0, (KERNEL_LOAD_ADDRESS + image_line_present - _start)
+    je image_line_test_complete
+    movl (KERNEL_LOAD_ADDRESS + image_line_x0 - _start), %eax
+    movl (KERNEL_LOAD_ADDRESS + image_line_y0 - _start), %edx
+    call image_present_source_pixel
+image_line_test_complete:
     movl (KERNEL_LOAD_ADDRESS + image_line_x0 - _start), %eax
     cmpl (KERNEL_LOAD_ADDRESS + image_line_x1 - _start), %eax
     jne image_line_advance
@@ -5414,7 +5557,7 @@ gui_window_image_caption: .asciz "M.I.L.O PIXEL STUDIO"
 wm_root_menu_title: .asciz "M.I.L.O APPLICATIONS"
 gui_overlay_title: .asciz "M.I.L.O // LOCAL"
 gui_overlay_kernel: .asciz "KERNEL"
-gui_overlay_version: .asciz "0.30.1"
+gui_overlay_version: .asciz "0.30.2"
 gui_overlay_cpu: .asciz "CPU"
 gui_overlay_cpu_mode: .asciz "I386 // POLL"
 gui_overlay_activity: .asciz "EVENT RATE"
@@ -5442,7 +5585,7 @@ gui_overlay_kib: .asciz "KIB"
 gui_overlay_hint: .asciz "F1 // APPS"
 gui_taskbar_label: .asciz "TASKS // MINIMIZED"
 gui_taskbar_empty: .asciz "NO MINIMIZED APPLICATIONS"
-gui_taskbar_version: .asciz "M.I.L.O V0.30.1"
+gui_taskbar_version: .asciz "M.I.L.O V0.30.2"
 gui_home_label: .asciz "SYSTEM"
 gui_files_label: .asciz "FILEHOUND"
 gui_traits_label: .asciz "TRAITS"
@@ -5479,7 +5622,7 @@ gui_home_heading: .asciz "SYSTEM HOME"
 gui_ring_name: .asciz "M.I.L.O"
 gui_ring_state: .asciz "AWAKE // LOCAL"
 gui_system_heading: .asciz "SYSTEM"
-gui_version_status: .asciz "KERNEL   0.30.1"
+gui_version_status: .asciz "KERNEL   0.30.2"
 gui_storage_status: .asciz "STORAGE  FAT12"
 gui_memory_status: .asciz "MEMORY"
 gui_mib_short: .asciz "MIB"
@@ -5689,8 +5832,15 @@ image_pixel_index: .long 0
 image_palette_index: .long 0
 image_cursor_x: .long 0
 image_cursor_y: .long 0
+image_stroke_last_x: .long 0
+image_stroke_last_y: .long 0
 image_caret_screen_x: .long 0
 image_caret_screen_y: .long 0
+image_present_source_x: .long 0
+image_present_source_y: .long 0
+image_present_screen_x: .long 0
+image_present_screen_y: .long 0
+image_present_colour: .long 0
 image_anchor_x: .long 0
 image_anchor_y: .long 0
 image_undo_size: .long 0
@@ -5720,6 +5870,8 @@ image_dirty: .byte 0
 image_undo_valid: .byte 0
 image_anchor_valid: .byte 0
 image_mouse_painting: .byte 0
+image_line_present: .byte 0
+image_stroke_colour: .byte 0
 image_name_mode: .byte 0
 image_new_mode: .byte 0
 image_new_selection: .byte 1
@@ -5757,6 +5909,7 @@ wm_preview_h: .long 0
 wm_physical_framebuffer: .long 0
 wm_present_width: .long 0
 wm_present_height: .long 0
+wm_present_window: .long 0
 wm_menu_x: .long 0
 wm_menu_y: .long 0
 wm_taskbar_count: .long 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static and binary checks for the V0.30.1 desktop and Pixel Studio."""
+"""Static and binary checks for the V0.30.2 desktop and Pixel Studio."""
 
 from pathlib import Path
 import re
@@ -90,13 +90,13 @@ def main():
         b"F1 // APPS",
         b"TASKS // MINIMIZED",
         b"NO MINIMIZED APPLICATIONS",
-        b"M.I.L.O V0.30.1",
+        b"M.I.L.O V0.30.2",
         b"EVENT RATE",
         b"0..120+ EV/S",
         b"EV/S",
         b"ACTIVE",
         b"MINIMIZED",
-        b"M.I.L.O VERSION 0.30.1",
+        b"M.I.L.O VERSION 0.30.2",
         b"M.I.L.O WRITER",
         b"CTRL+S SAVE",
         b"SHIFT+ARROWS/MOUSE SELECT",
@@ -171,7 +171,7 @@ def main():
         "movl $872, %eax\n    movl $740, %edx",
     ):
         require(shell_source, fragment)
-    assert 888 + len("M.I.L.O V0.30.1") * 8 == 1008
+    assert 888 + len("M.I.L.O V0.30.2") * 8 == 1008
     assert 872 + len("00/00/2000  00:00") * 8 == 1008
 
     # Six independent native application windows retain focus, stacking,
@@ -424,6 +424,14 @@ def main():
         "gui_image_load_failed: .asciz \"FAT12 IMAGE READ FAILED\"",
         "image_apply_tool:",
         "image_paint_current_pixel:",
+        "image_paint_stroke_to_cursor:",
+        "image_present_source_pixel:",
+        "image_present_source_block:",
+        "render_image:",
+        "wm_present_image_region:",
+        "image_line_present: .byte 0",
+        "image_stroke_last_x: .long 0",
+        "image_stroke_last_y: .long 0",
         "image_flood_fill:",
         "image_draw_line:",
         "image_draw_rectangle:",
@@ -452,6 +460,19 @@ def main():
     status_byte_guard = "cmpb $0, (KERNEL_LOAD_ADDRESS + image_status - _start)"
     assert status_dword_guard not in shell_source
     assert shell_source.count(status_byte_guard) >= 4
+    mouse_stroke = shell_source[
+        shell_source.index("gui_image_mouse_drag:"):
+        shell_source.index("gui_editor_mouse_drag:")
+    ]
+    assert "call image_paint_stroke_to_cursor" in mouse_stroke
+    assert "call render_shell" not in mouse_stroke
+    pixel_present = shell_source[
+        shell_source.index("image_present_source_pixel:"):
+        shell_source.index("image_mark_changed:")
+    ]
+    assert "movl $WM_BACKBUFFER_ADDRESS, BOOT_FRAMEBUFFER(%ebp)" in pixel_present
+    assert "call image_present_source_block" in pixel_present
+    assert "call render_shell" not in pixel_present
     for fragment in (
         "load_entry_to_image_buffer:",
         "movl $IMAGE_BUFFER_ADDRESS, %edi",
@@ -612,7 +633,7 @@ def main():
     require(kernel_source, "incl (KERNEL_LOAD_ADDRESS + system_event_count - _start)")
 
     print(
-        "M.I.L.O V0.30.1 desktop contract: %d-byte kernel, no-blank pointer, "
+        "M.I.L.O V0.30.2 desktop contract: %d-byte kernel, no-blank pointer, "
         "keyboard windows, Writer, FileHound, native M16 Pixel Studio OK"
         % len(kernel)
     )
